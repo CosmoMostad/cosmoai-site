@@ -1,0 +1,49 @@
+{
+  "profile": {
+    "name": "Cosmo",
+    "tagline": "Building things with AI — one day at a time.",
+    "bio": "I'm 20 years old and I'm spending every day learning how to build software using artificial intelligence. Think of it like an apprenticeship, except instead of one mentor I have thousands of AI tools helping me build real products that real people use. This site is my public journal."
+  },
+  "dailyLog": [
+    {
+      "date": "2026-03-09",
+      "title": "Redesigning the app from scratch (kind of)",
+      "description": "Spent the day rebuilding the main screen of Wren Health — a family health app I built that's currently waiting for Apple to approve it. The old design was flat and boring. The new one has cards you can drag around to reorder, a cool animation when you tap into someone's profile (it spins open like a playing card), and a much better background. Also had a good conversation with Remi (my AI assistant) about whether I'm moving fast enough. Conclusion: yes, but I need to sell more.",
+      "tags": ["React Native", "UI Design", "Wren Health"]
+    }
+  ],
+  "agents": [
+    {
+      "id": "ai-news",
+      "name": "AI News Agent",
+      "emoji": "📡",
+      "status": "active",
+      "description": "Scans the internet every morning for the most important AI news and writes a plain-English summary. No hype, just what actually matters.",
+      "lastUpdate": "Checking in soon — first run tomorrow morning.",
+      "lastRun": null
+    },
+    {
+      "id": "remi",
+      "name": "Remi (Main Assistant)",
+      "emoji": "🐀",
+      "status": "active",
+      "description": "My day-to-day AI partner. Writes code, gives honest feedback, updates this website, and keeps me accountable. Named after the rat from Ratatouille.",
+      "lastUpdate": "Currently helping build this website.",
+      "lastRun": "2026-03-09"
+    }
+  ],
+  "projects": [
+    {
+      "name": "Wren Health",
+      "description": "A family health app for iPhone. Store everyone's medical info, share records with doctors, set appointment reminders — all in one place. Built in about 4 months.",
+      "status": "In App Store Review",
+      "statusColor": "yellow",
+      "url": "https://wrenhealth.app",
+      "downloads": null,
+      "revenue": null,
+      "revenueNote": "Not live yet — waiting on Apple approval",
+      "tech": ["React Native", "Expo", "Supabase", "TypeScript"]
+    }
+  ],
+  "lastUpdated": "2026-03-09"
+}
