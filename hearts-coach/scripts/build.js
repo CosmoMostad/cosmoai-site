@@ -24,4 +24,7 @@ fs.writeFileSync(path.join(root, 'dist/hearts-coach.user.js'), userscript);
 
 const app = read('app/index.html').replace('<script src="../src/engine.js"></script>', '<script>\n' + read('src/engine.js') + '\n</script>');
 fs.writeFileSync(path.join(root, 'dist/index.html'), app);
-console.log('built dist/hearts-coach.user.js and dist/index.html');
+// Artifact variant: body-only (the host supplies the document skeleton).
+const inner = app.replace(/^[\s\S]*?<head>/, '').replace(/<meta[^>]*>\s*/g, '').replace(/<\/head>\s*<body>/, '').replace(/<\/body>\s*<\/html>\s*$/, '');
+fs.writeFileSync(path.join(root, 'dist/artifact.html'), inner);
+console.log('built dist/hearts-coach.user.js, dist/index.html and dist/artifact.html');

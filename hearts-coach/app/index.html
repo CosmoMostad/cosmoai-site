@@ -4,57 +4,86 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hearts Coach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
-  :root { --bg:#0f1a12; --panel:#16241a; --line:#2b4031; --ink:#e8efe9; --dim:#9db3a3; --red:#ff6b6b; --gold:#ffd166; --ok:#7bd88f; --accent:#4cc9f0; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-  header h1 { font-size:20px; margin:0; letter-spacing:.5px; }
+  :root {
+    --ground:#efe9db; --panel:#f8f4ea; --panel-2:#e6dfcd; --line:#cfc5ad; --ink:#1c1a17; --dim:#6b6858;
+    --felt:#1d5a3b; --felt-deep:#143f28; --felt-ink:#dfe9df;
+    --gold:#b8862e; --gold-soft:#f1dfae; --red:#b3202b; --card:#fffdf7; --card-ink:#1c1a17; --card-red:#b3202b;
+    --focus:#2b7bb9;
+    --display:"Fraunces", Georgia, "Times New Roman", serif;
+    --body:"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --ground:#0f2418; --panel:#163524; --panel-2:#1d4430; --line:#2f5a41; --ink:#e6eee6; --dim:#9fb8a7;
+    --felt:#1d5a3b; --felt-deep:#133d28; --felt-ink:#dfe9df; --gold:#d4a24c; --gold-soft:#5a4614; --red:#ff7b7b; --focus:#7cc4ff;
+  } }
+  :root[data-theme="dark"] {
+    --ground:#0f2418; --panel:#163524; --panel-2:#1d4430; --line:#2f5a41; --ink:#e6eee6; --dim:#9fb8a7;
+    --felt:#1d5a3b; --felt-deep:#133d28; --felt-ink:#dfe9df; --gold:#d4a24c; --gold-soft:#5a4614; --red:#ff7b7b; --focus:#7cc4ff;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body { background:var(--ground); color:var(--ink); font:15px/1.5 var(--body); padding-inline:16px; padding-block:0 32px; }
+  header { max-width:1380px; margin:0 auto; padding-block:18px 10px; display:flex; gap:14px 20px; align-items:baseline; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+  header h1 { font:800 26px/1 var(--display); margin:0; letter-spacing:-.01em; }
+  header h1 .pip { color:var(--red); }
+  header .tag { color:var(--dim); font-size:14px; }
   header .spacer { flex:1; }
-  main { display:grid; grid-template-columns: 1.1fr .9fr; gap:16px; padding:16px 20px; max-width:1400px; margin:0 auto; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-  h2 { font-size:14px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:0 0 10px; }
-  button { background:#22362a; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:7px 12px; cursor:pointer; font-size:14px; }
-  button:hover { border-color:var(--accent); }
-  button.primary { background:#1d5a3a; border-color:#2f8a58; }
-  button.warn { background:#5a1d1d; border-color:#8a2f2f; }
-  select, input[type=text] { background:#0c150f; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:7px 9px; font-size:14px; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:6px 0; }
-  .grid { display:grid; grid-template-columns: repeat(13, minmax(0,1fr)); gap:4px; }
-  .card { border:1px solid var(--line); border-radius:6px; padding:6px 0; text-align:center; cursor:pointer; background:#f7f7f2; color:#111; font-weight:700; user-select:none; font-size:14px; }
-  .card.red { color:#c1121f; }
-  .card.sel { outline:3px solid var(--accent); }
-  .card.gone { opacity:.18; pointer-events:none; }
-  .card.rec { outline:3px solid var(--gold); box-shadow:0 0 12px var(--gold); }
+  header label { color:var(--dim); font-size:14px; display:flex; gap:6px; align-items:center; }
+  main { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr); gap:16px; padding-top:16px; max-width:1380px; margin:0 auto; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  main > div { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+  h2 { font:600 12px/1 var(--body); text-transform:uppercase; letter-spacing:.12em; color:var(--dim); margin:0 0 12px; }
+  h2 .muted { text-transform:none; letter-spacing:0; }
+  button { background:var(--panel-2); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer; font:500 14px var(--body); }
+  button:hover { border-color:var(--gold); }
+  button:focus-visible, input:focus-visible, select:focus-visible, .card:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+  button.primary { background:var(--felt); border-color:var(--felt-deep); color:var(--felt-ink); }
+  select, input[type=text] { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:14px var(--body); max-width:100%; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-block:6px; }
+  .grid { display:grid; grid-template-columns:repeat(13, minmax(0,1fr)); gap:4px; }
+  .card { border:1px solid #b9b3a3; border-radius:5px; padding:6px 0; text-align:center; cursor:pointer; background:var(--card); color:var(--card-ink); font:500 14px var(--mono); user-select:none; box-shadow:0 1px 0 rgba(0,0,0,.15); }
+  .card.red { color:var(--card-red); }
+  .card.sel { outline:3px solid var(--focus); outline-offset:-1px; }
+  .card.gone { opacity:.2; pointer-events:none; }
+  .card.rec { outline:3px solid var(--gold); box-shadow:0 0 0 4px var(--gold-soft), 0 2px 8px rgba(0,0,0,.25); }
   .card.big { font-size:18px; padding:10px 0; }
   .hand { display:flex; gap:5px; flex-wrap:wrap; }
-  .hand .card { min-width:46px; }
-  .table { display:grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: auto auto auto; gap:6px; place-items:center; background:#144a2b; border-radius:12px; padding:12px; min-height:180px; }
-  .seat { text-align:center; font-size:13px; color:#d6e8dc; }
-  .seat .card { display:inline-block; min-width:52px; margin-top:4px; }
-  .seat.turn { color:var(--gold); font-weight:700; }
-  .advice { background:#0c150f; border-left:4px solid var(--gold); padding:10px 12px; border-radius:6px; margin:8px 0; }
-  .advice .head { font-size:22px; font-weight:800; color:var(--gold); }
-  .advice ul { margin:6px 0 0 18px; padding:0; }
-  .intel { color:var(--dim); font-size:13px; }
-  .intel li { margin:2px 0; }
-  .moon { color:var(--red); }
+  .hand .card { min-width:48px; }
+  .table { display:grid; grid-template-columns:1fr 1fr 1fr; grid-template-rows:auto auto auto; gap:6px; place-items:center; background:radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-deep) 100%); border-radius:14px; padding:12px; min-height:190px; color:var(--felt-ink); box-shadow:inset 0 0 0 6px rgba(0,0,0,.18); }
+  .seat { text-align:center; font-size:13px; }
+  .seat .card { display:inline-block; min-width:54px; margin-top:4px; }
+  .seat.turn { color:var(--gold); font-weight:600; }
+  .table .muted { color:var(--felt-ink); opacity:.75; }
+  .advice { background:var(--panel-2); border-left:4px solid var(--gold); padding:12px 14px; border-radius:6px; margin-block:8px; }
+  .advice .head { font:800 30px/1.1 var(--display); color:var(--ink); text-wrap:balance; }
+  .advice ul { margin:8px 0 0 18px; padding:0; max-width:62ch; }
+  .advice li + li { margin-top:4px; }
+  .intel { color:var(--dim); font-size:13px; margin:0; padding-left:18px; }
+  .intel li { margin:3px 0; }
+  .moon { color:var(--red); font-weight:600; }
   .muted { color:var(--dim); font-size:13px; }
-  .pts { display:flex; gap:14px; font-variant-numeric: tabular-nums; }
-  .hist { max-height:220px; overflow:auto; font-size:13px; color:var(--dim); }
+  .pts { display:flex; gap:14px; font-variant-numeric:tabular-nums; flex-wrap:wrap; }
+  .hist { max-height:220px; overflow:auto; font:12px/1.6 var(--mono); color:var(--dim); margin-top:8px; }
   .hidden { display:none !important; }
-  kbd { background:#22362a; border-radius:4px; padding:1px 5px; font-size:12px; }
+  kbd { background:var(--panel-2); border:1px solid var(--line); border-radius:4px; padding:1px 5px; font:12px var(--mono); }
+  details { font-size:13px; color:var(--dim); }
+  @media (prefers-reduced-motion: no-preference) { .card { transition:transform .12s ease; } .card:hover { transform:translateY(-2px); } }
 </style>
 </head>
 <body>
 <header>
-  <h1>♥ Hearts Coach</h1>
-  <span class="muted">Pro-level pass &amp; play advice, with the reasoning.</span>
+  <h1><span class="pip">♥</span> Hearts Coach</h1>
+  <span class="tag">Which three to pass, what to play, and why.</span>
   <span class="spacer"></span>
   <button id="newHand">New hand</button>
   <button id="undo">Undo</button>
-  <label class="muted"><input type="checkbox" id="moonMode"> Moon mode</label>
+  <label><input type="checkbox" id="moonMode"> Moon mode</label>
 </header>
 <main>
   <div>
@@ -71,7 +100,7 @@
       <h2>Your 13 cards <span id="handCount" class="muted"></span></h2>
       <div class="row"><input type="text" id="handText" placeholder="Type: QS 10H 4C AD ... then Enter" size="48"> <button id="handTextGo">Set</button></div>
       <div id="deckGrid" class="grid"></div>
-      <div class="row"><button class="primary" id="gotHand">Get pass advice</button> <button id="skipPass">No pass this hand</button></div>
+      <div class="row"><button class="primary" id="gotHand">Get pass advice</button> <button id="skipPass">No pass this hand</button> <button id="example">Load example hand</button> <span id="exampleNote" class="muted">Example hand loaded so you can see the coach at work. Click cards to make it yours.</span></div>
     </section>
 
     <section id="passPanel" class="hidden">
@@ -126,7 +155,8 @@
   const H = window.HeartsCoach;
   const $ = id => document.getElementById(id);
   let tracker = new H.HandTracker();
-  let picked = new Set();      // hand entry
+  const EXAMPLE = 'QS AS 3S 2C 5C 9C 4D 7D JD 3H 6H 9H KH';
+  let picked = new Set(H.parseCards(EXAMPLE).map(c => c.id));      // hand entry, prefilled with an example
   let passSel = new Set();     // cards passed
   let recvSel = new Set();     // cards received
   let phase = 'hand';
@@ -159,9 +189,10 @@
   // ---- hand entry
   function renderHandEntry() {
     $('handCount').textContent = `(${picked.size}/13)`;
-    renderGrid($('deckGrid'), () => true, c => { picked.has(c.id) ? picked.delete(c.id) : (picked.size < 13 && picked.add(c.id)); renderHandEntry(); }, picked);
+    renderGrid($('deckGrid'), () => true, c => { picked.has(c.id) ? picked.delete(c.id) : (picked.size < 13 && picked.add(c.id)); $('exampleNote').classList.add('hidden'); renderHandEntry(); }, picked);
   }
-  $('handTextGo').onclick = () => { picked = new Set(H.parseCards($('handText').value).map(c => c.id)); renderHandEntry(); };
+  $('handTextGo').onclick = () => { picked = new Set(H.parseCards($('handText').value).map(c => c.id)); $('exampleNote').classList.add('hidden'); renderHandEntry(); };
+  $('example').onclick = () => { picked = new Set(H.parseCards(EXAMPLE).map(c => c.id)); $('exampleNote').classList.remove('hidden'); renderHandEntry(); };
   $('handText').addEventListener('keydown', e => { if (e.key === 'Enter') $('handTextGo').onclick(); });
 
   $('gotHand').onclick = () => startPassPhase(false);

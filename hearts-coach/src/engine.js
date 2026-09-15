@@ -130,7 +130,7 @@
       } else if (card.v >= 13) {
         if (hasQ && g.S.length >= 4) { d = 15; why.push(`${fmt(card)} is fine beside your own Q♠ with ${g.S.length} spades`); }
         else if (spadesBelowQ >= 3) { d = 40; why.push(`${fmt(card)} has ${spadesBelowQ} low spades under it, so you can duck spade leads for a while`); }
-        else { d = card.v === 14 ? 88 : 82; why.push(`${fmt(card)} with ${spadesBelowQ} low spades will win a spade trick and catch the Q♠`); }
+        else { d = card.v === 14 ? 88 : 82; why.push(`${fmt(card)} with ${spadesBelowQ === 0 ? "no low spades" : spadesBelowQ === 1 ? "one low spade" : spadesBelowQ + " low spades"} will win a spade trick and catch the Q♠`); }
         if (direction === 'right') d += 5;
       } else {
         d = card.v <= 6 ? -60 : card.v <= 9 ? -35 : -15;
