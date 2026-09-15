@@ -33,6 +33,7 @@
     raw: [],          // recent raw lines, newest last
     messages: [],     // recent parsed objects
     cmds: {},         // cmd -> how many times seen
+    turn: null,       // whose turn the site last said it was, in its own index
     hand: null,       // latest full 13-card hand
     handSeq: 0,       // bumps whenever `hand` changes
     passed: null,     // cards we sent away
@@ -82,6 +83,13 @@
     push(state.messages, { t: Date.now(), direction, msg });
     const cmd = String(msg.cmd || msg.command || msg.type || '').toLowerCase();
     if (cmd) state.cmds[cmd] = (state.cmds[cmd] || 0) + 1;
+    // {"cmd":"waiting_for","waitingFor":[0,0,2,0]} — one non-zero slot is that player's turn.
+    const wf = msg.waitingFor || msg.waiting_for;
+    if (Array.isArray(wf) && wf.length === 4) {
+      const live = wf.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
+      if (live.length === 1 && state.turn !== live[0]) { state.turn = live[0]; emit({ kind: 'turn', seat: live[0], mode: wf[live[0]] }); }
+      return;
+    }
     const lists = findCardLists(msg);
     if (!lists.length) return;
 
@@ -190,6 +198,7 @@
       'Commands seen: ' + (Object.keys(state.cmds).map(k => k + ' x' + state.cmds[k]).join(', ') || 'none'),
       'Hand: ' + (state.hand && H ? H.fmtList(state.hand) : 'none'),
       'Passed: ' + (state.passed && H ? H.fmtList(state.passed) : 'none') + '   Received: ' + (state.received && H ? H.fmtList(state.received) : 'none'),
+      'Turn (site index): ' + state.turn,
       'Plays recognised: ' + state.plays.length + (state.plays.length && H ? ' (last: ' + state.plays.slice(-6).map(p => 'seat' + p.seat + ':' + H.fmt(p.card)).join(' ') + ')' : ''),
       '',
       'Single-card messages not recognised as plays (' + state.unknown.length + '):',

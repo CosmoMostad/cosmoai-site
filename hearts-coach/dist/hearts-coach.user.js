@@ -687,6 +687,7 @@
     raw: [],          // recent raw lines, newest last
     messages: [],     // recent parsed objects
     cmds: {},         // cmd -> how many times seen
+    turn: null,       // whose turn the site last said it was, in its own index
     hand: null,       // latest full 13-card hand
     handSeq: 0,       // bumps whenever `hand` changes
     passed: null,     // cards we sent away
@@ -736,6 +737,13 @@
     push(state.messages, { t: Date.now(), direction, msg });
     const cmd = String(msg.cmd || msg.command || msg.type || '').toLowerCase();
     if (cmd) state.cmds[cmd] = (state.cmds[cmd] || 0) + 1;
+    // {"cmd":"waiting_for","waitingFor":[0,0,2,0]} — one non-zero slot is that player's turn.
+    const wf = msg.waitingFor || msg.waiting_for;
+    if (Array.isArray(wf) && wf.length === 4) {
+      const live = wf.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
+      if (live.length === 1 && state.turn !== live[0]) { state.turn = live[0]; emit({ kind: 'turn', seat: live[0], mode: wf[live[0]] }); }
+      return;
+    }
     const lists = findCardLists(msg);
     if (!lists.length) return;
 
@@ -844,6 +852,7 @@
       'Commands seen: ' + (Object.keys(state.cmds).map(k => k + ' x' + state.cmds[k]).join(', ') || 'none'),
       'Hand: ' + (state.hand && H ? H.fmtList(state.hand) : 'none'),
       'Passed: ' + (state.passed && H ? H.fmtList(state.passed) : 'none') + '   Received: ' + (state.received && H ? H.fmtList(state.received) : 'none'),
+      'Turn (site index): ' + state.turn,
       'Plays recognised: ' + state.plays.length + (state.plays.length && H ? ' (last: ' + state.plays.slice(-6).map(p => 'seat' + p.seat + ':' + H.fmt(p.card)).join(' ') + ')' : ''),
       '',
       'Single-card messages not recognised as plays (' + state.unknown.length + '):',
@@ -1027,6 +1036,8 @@
   let lastEventSeq = 0;
   let myPid = null;          // this site's player index for us; learned from the first card we play
   let pendingPlays = [];     // plays held until we know which index is us
+  let protoTurn = null;      // whose turn the site says it is, in its index
+  let joinedMidHand = false;
   const PROTO = (typeof HeartsProtocol !== 'undefined') ? HeartsProtocol : (window.HeartsProtocol || null);
   if (PROTO) { try { PROTO.start(); } catch (e) { console.warn('[hearts-coach] protocol tap failed', e); } }
   let status = 'Waiting for a hand…';
@@ -1074,6 +1085,17 @@
     const passing = !protoDriven && tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
     if (passing) { renderPass(); return; }
 
+    if (protoDriven) {
+      // Attaching mid-hand: the deal message is long gone, so say so instead of sitting on trick 1.
+      if (!joinedMidHand && tracker.tricks.length === 0 && !tracker.trick.plays.length
+          && handCards.length && handCards.length < tracker.hand.length) {
+        joinedMidHand = true;
+      }
+      if (joinedMidHand) {
+        status = `Joined part-way through this hand (${tracker.hand.length - handCards.length} of your cards already played), so advice starts at the next deal.`;
+        render(); return;
+      }
+    }
     if (protoPlays) { render(); return; }   // the site tells us every play; don't also guess from pixels
     // Play phase: record new cards on the table in seat order.
     const known = new Set(tracker.trick.plays.map(p => p.card.id));
@@ -1121,8 +1143,9 @@
     if (!evs.length) return;
     for (const ev of evs) {
       lastEventSeq = ev.seq;
-      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; }
+      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; }
       else if (ev.kind === 'play') pendingPlays.push(ev);
+      else if (ev.kind === 'turn') protoTurn = ev.seat;
     }
     if (!dealt) { pendingPlays = []; return; }
     // The first played card that was in our own deal tells us which index we are.
@@ -1139,6 +1162,12 @@
     }
     pendingPlays = [];
     lastAdviceKey = '';
+  }
+
+  /** The site's idea of whose turn it is, in our seat numbering. */
+  function protoSeatTurn() {
+    if (protoTurn === null || myPid === null) return null;
+    return (protoTurn - myPid + 4) % 4;
   }
 
   /** Start a hand from the site's own message: authoritative, and already past the pass. */
@@ -1292,6 +1321,11 @@
     const key = 'play:' + tracker.log.length + ':' + turn + ':' + tracker.moonMode;
     if (key === lastAdviceKey) return;
     lastAdviceKey = key;
+    const want = protoSeatTurn();
+    if (want !== null && !tracker.handOver() && turn !== null && want !== turn && !joinedMidHand) {
+      desync = `The site says it is ${H.SEAT_NAMES[want]}'s turn but the coach has ${H.SEAT_NAMES[turn]}. Click Resync.`;
+      q('.hc-warn').textContent = desync;
+    }
     if (tracker.handOver()) { q('.hc-advice').innerHTML = `<div class="hc-head">Hand over</div>Points: ${tracker.pointsTaken.map((p, i) => `${H.SEAT_NAMES[i]} ${p}`).join(', ')}`; highlight(null); return; }
     const rec = tracker.recommend();
     q('.hc-intel').innerHTML = rec.intel.map(l => `<li class="${/MOON/.test(l) ? 'hc-moon' : ''}">${esc(l)}</li>`).join('');
@@ -1302,7 +1336,8 @@
       highlight(rec.card);
       log(`YOUR TURN → ${rec.headline}\n  ${rec.reasons.join('\n  ')}` + (rec.alternatives.length ? `\n  also: ${rec.alternatives.map(a => H.fmt(a.card)).join(', ')}` : '') + `\n  intel: ${rec.intel.join(' | ')}`);
     } else {
-      q('.hc-advice').innerHTML = `<div class="hc-dim">${turn == null ? 'Waiting for the 2♣ lead.' : `Waiting for ${H.SEAT_NAMES[turn]}…`}</div>`;
+      const who = turn != null ? H.SEAT_NAMES[turn] : (want != null ? H.SEAT_NAMES[want] : null);
+      q('.hc-advice').innerHTML = `<div class="hc-dim">${who ? `Waiting for ${who}…` : (joinedMidHand ? 'Waiting for the next deal.' : 'Waiting for the first card of the hand.')}</div>`;
       highlight(null);
     }
   }

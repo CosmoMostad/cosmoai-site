@@ -37,17 +37,34 @@ test('recognises card_was_played, keyed on pid', () => {
 test('emits hand and play events in the order they arrived', () => {
   const kinds = P.state.events.map(e => e.kind);
   assert.equal(kinds[0], 'hand');
-  assert.ok(kinds.slice(1).every(k => k === 'play'));
+  assert.ok(kinds.slice(1).every(k => k === 'play' || k === 'turn'));
   const seqs = P.state.events.map(e => e.seq);
   assert.deepEqual(seqs, seqs.slice().sort((a, b) => a - b));
 });
 
-test('ignores non-JSON chatter and waiting_for noise', () => {
+test('ignores non-JSON chatter', () => {
   const before = P.state.events.length;
   P.feed('waiting_for message processing took 0', 'in');
   P.feed('changing game state', 'in');
-  P.feed('received network message {"cmd":"waiting_for","waitingFor":[0,0,2,0]}', 'in');
+  P.feed('card_was_played message processing took 0', 'in');
   assert.equal(P.state.events.length, before);
+});
+
+test('reads whose turn it is from waiting_for, and only when one player is named', () => {
+  P.feed('received network message {"cmd":"waiting_for","waitingFor":[0,0,2,0]}', 'in');
+  assert.equal(P.state.turn, 2);
+  const after = P.state.events.length;
+  assert.equal(P.state.events[after - 1].kind, 'turn');
+  // The passing phase waits on several players at once and names no single turn.
+  P.feed('received network message {"cmd":"waiting_for","waitingFor":[1,0,0,1]}', 'in');
+  assert.equal(P.state.turn, 2);
+  assert.equal(P.state.events.length, after);
+});
+
+test('a trick-score message is never mistaken for a play', () => {
+  const before = P.state.plays.length;
+  P.feed('received network message {"animate":true,"cmd":"scores","lastTrick":[27,29,37,33],"pid":2,"tempScore":0}', 'in');
+  assert.equal(P.state.plays.length, before);
 });
 
 test('parses JSON followed by trailing prose', () => {
