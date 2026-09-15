@@ -14,6 +14,7 @@
 // @grant        none
 // ==/UserScript==
 
+var HEARTS_COACH_BUILD = "09-15 03:29";
 /*
  * Hearts Coach — strategy engine
  * Pure, dependency-free. Works in Node (module.exports) and browsers (window.HeartsCoach).
@@ -490,7 +491,7 @@
   function recommendPlay(state) {
     state = normalizeState(state);
     const a = analyze(state);
-    const legal = legalPlays(state);
+    const legal = state.legalOverride && state.legalOverride.length ? state.legalOverride : legalPlays(state);
     const intel = intelLines(state, a);
     if (!legal.length) return { card: null, headline: 'No cards', reasons: [], alternatives: [], intel, legal, phase: 'none' };
     const leading = state.trick.plays.length === 0;
@@ -525,6 +526,7 @@
     for (const k in st.voids) if (!(st.voids[k] instanceof Set)) st.voids[k] = new Set(st.voids[k]);
     if (st.passedCards) st.passedCards = parseCards(st.passedCards);
     st.extraPlayed = parseCards(st.extraPlayed || []);
+    if (st.legalOverride) st.legalOverride = parseCards(st.legalOverride);
     if (st.heartsBroken == null) {
       st.heartsBroken = st.tricks.some(t => t.plays.some(p => p.card.s === 'H')) || st.trick.plays.some(p => p.card.s === 'H');
       if (st.opts && st.opts.qsBreaksHearts) st.heartsBroken = st.heartsBroken || st.tricks.some(t => t.plays.some(p => p.card.id === 'QS'));
@@ -688,6 +690,9 @@
     messages: [],     // recent parsed objects
     cmds: {},         // cmd -> how many times seen
     turn: null,       // whose turn the site last said it was, in its own index
+    myHand: null,     // our remaining cards, from the site's own play prompt
+    valid: null,      // the legal plays, as the site states them
+    suggested: null,  // the site's own (weak) suggestion
     hand: null,       // latest full 13-card hand
     handSeq: 0,       // bumps whenever `hand` changes
     passed: null,     // cards we sent away
@@ -737,6 +742,23 @@
     push(state.messages, { t: Date.now(), direction, msg });
     const cmd = String(msg.cmd || msg.command || msg.type || '').toLowerCase();
     if (cmd) state.cmds[cmd] = (state.cmds[cmd] || 0) + 1;
+    // {"cmd":"play","valid_cards":"2H KH","invalid_cards":"3S 6S 6C 7C","lead_card":false,
+    //  "suggested":{"card":"2H",...}} — sent to us when it is our turn. valid + invalid is
+    // our whole remaining hand, and valid_cards is the legal set, stated by the game itself.
+    if (typeof msg.valid_cards === 'string' || typeof msg.validCards === 'string') {
+      const valid = H ? H.parseCards(msg.valid_cards || msg.validCards) : [];
+      const invalid = H ? H.parseCards(msg.invalid_cards || msg.invalidCards || '') : [];
+      if (valid.length) {
+        state.valid = valid;
+        state.myHand = valid.concat(invalid);
+        state.suggested = msg.suggested && msg.suggested.card && H ? H.parseCard(msg.suggested.card) : null;
+        emit({ kind: 'prompt', valid, invalid, hand: state.myHand, suggested: state.suggested,
+               lead: !!(msg.lead_card || msg.leadCard), startHand: !!(msg.start_hand || msg.startHand) });
+      }
+      return;
+    }
+    // Our own outgoing play carries no player index; card_was_played reports it back to us.
+    if (direction === 'out' && /^play$/.test(cmd)) return;
     // {"cmd":"waiting_for","waitingFor":[0,0,2,0]} — one non-zero slot is that player's turn.
     const wf = msg.waitingFor || msg.waiting_for;
     if (Array.isArray(wf) && wf.length === 4) {
@@ -811,10 +833,15 @@
   function start() {
     if (state.started) return state;
     state.started = true;
+    const g = typeof window !== 'undefined' ? window : {};
     // Console tap. The game logs both directions; "sending" marks our own messages.
+    // Restore any hook an older copy installed first, so only the newest is ever live.
+    g.__heartsCoachConsole = g.__heartsCoachConsole || {};
     for (const level of ['log', 'info', 'debug']) {
+      if (g.__heartsCoachConsole[level]) console[level] = g.__heartsCoachConsole[level];
       const orig = console[level];
       if (typeof orig !== 'function') continue;
+      g.__heartsCoachConsole[level] = orig;
       console[level] = function () {
         try {
           const text = Array.prototype.map.call(arguments, a => (typeof a === 'string' ? a : safeStr(a))).join(' ');
@@ -825,8 +852,10 @@
     }
     // WebSocket tap, for sites that do not log.
     try {
+      if (g.__heartsCoachWS) window.WebSocket = g.__heartsCoachWS;
       const OrigWS = window.WebSocket;
       if (OrigWS) {
+        g.__heartsCoachWS = OrigWS;
         const Wrapped = function (url, protocols) {
           const ws = protocols === undefined ? new OrigWS(url) : new OrigWS(url, protocols);
           ws.addEventListener('message', e => { try { feed(typeof e.data === 'string' ? e.data : '', 'in'); } catch (err) { /* ignore */ } });
@@ -853,6 +882,8 @@
       'Hand: ' + (state.hand && H ? H.fmtList(state.hand) : 'none'),
       'Passed: ' + (state.passed && H ? H.fmtList(state.passed) : 'none') + '   Received: ' + (state.received && H ? H.fmtList(state.received) : 'none'),
       'Turn (site index): ' + state.turn,
+      'Remaining hand (from prompt): ' + (state.myHand && H ? H.fmtList(state.myHand) : 'none'),
+      'Legal now: ' + (state.valid && H ? H.fmtList(state.valid) : 'none'),
       'Plays recognised: ' + state.plays.length + (state.plays.length && H ? ' (last: ' + state.plays.slice(-6).map(p => 'seat' + p.seat + ':' + H.fmt(p.card)).join(' ') + ')' : ''),
       '',
       'Single-card messages not recognised as plays (' + state.unknown.length + '):',
@@ -878,7 +909,8 @@
   'use strict';
   const H = (typeof HeartsCoach !== 'undefined') ? HeartsCoach : (typeof window !== 'undefined' && window.HeartsCoach);
   if (!H) { console.error('[hearts-coach] engine missing'); return; }
-  if (window.__heartsCoachLoaded) return;
+  // A newer copy pasted over an older one must replace it, not bounce off a flag.
+  if (window.__heartsCoachTeardown) { try { window.__heartsCoachTeardown(); } catch (e) { /* carry on */ } }
   window.__heartsCoachLoaded = true;
 
   // ------------------------------------------------------------ config
@@ -1038,6 +1070,7 @@
   let pendingPlays = [];     // plays held until we know which index is us
   let protoTurn = null;      // whose turn the site says it is, in its index
   let joinedMidHand = false;
+  let prompt = null;         // the site's live play prompt: our hand and what is legal right now
   const PROTO = (typeof HeartsProtocol !== 'undefined') ? HeartsProtocol : (window.HeartsProtocol || null);
   if (PROTO) { try { PROTO.start(); } catch (e) { console.warn('[hearts-coach] protocol tap failed', e); } }
   let status = 'Waiting for a hand…';
@@ -1049,8 +1082,8 @@
   function step() {
     // A site that broadcasts its own state beats anything we can read off the screen.
     if (PROTO) drainProtocol();
-    const protoDriven = !!(PROTO && PROTO.state.hand);
-    const protoPlays = !!(PROTO && PROTO.state.plays.length);
+    const protoDriven = !!(PROTO && (PROTO.state.hand || PROTO.state.myHand));
+    const protoPlays = !!(PROTO && (PROTO.state.plays.length || PROTO.state.myHand));
     let items;
     try { items = scanCards(); } catch (e) { status = 'scan error: ' + e.message; render(); return; }
     const { hand, trick, center } = classify(items);
@@ -1091,10 +1124,11 @@
           && handCards.length && handCards.length < tracker.hand.length) {
         joinedMidHand = true;
       }
-      if (joinedMidHand) {
+      if (joinedMidHand && !prompt && !PROTO.state.myHand) {
         status = `Joined part-way through this hand (${tracker.hand.length - handCards.length} of your cards already played), so advice starts at the next deal.`;
         render(); return;
       }
+      if (joinedMidHand) status = 'Picked up mid-hand from the site. Advice is live; card counting is partial until the next deal.';
     }
     if (protoPlays) { render(); return; }   // the site tells us every play; don't also guess from pixels
     // Play phase: record new cards on the table in seat order.
@@ -1143,9 +1177,18 @@
     if (!evs.length) return;
     for (const ev of evs) {
       lastEventSeq = ev.seq;
-      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; }
+      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; prompt = null; }
       else if (ev.kind === 'play') pendingPlays.push(ev);
       else if (ev.kind === 'turn') protoTurn = ev.seat;
+      else if (ev.kind === 'prompt') { prompt = ev; lastAdviceKey = ''; }
+    }
+    // The prompt states our remaining hand outright, so we can start mid-hand instead of waiting.
+    if (prompt && !dealt) {
+      tracker = new H.HandTracker();
+      tracker.setHand(prompt.hand);
+      dealt = tracker.hand.slice();
+      joinedMidHand = true;               // we never saw the deal, so card counting stays partial
+      status = 'Picked up mid-hand from the site. Advice is live; card counting is partial until the next deal.';
     }
     if (!dealt) { pendingPlays = []; return; }
     // The first played card that was in our own deal tells us which index we are.
@@ -1156,6 +1199,7 @@
       if (myPid === null) return;   // hold them; we learn this within the first trick
     }
     for (const ev of pendingPlays) {
+      if (prompt && ev.seat === myPid && ev.seq > prompt.seq) prompt = null;   // we played; prompt spent
       const seat = (ev.seat - myPid + 4) % 4;
       try { tracker.play(seat, ev.card); desync = null; }
       catch (e) { desync = `Missed a card (${e.message}). Click Resync.`; }
@@ -1238,7 +1282,7 @@
       #hearts-coach-panel.hc-min .hc-body { display: none; }
       .hc-rec-card { outline: 4px solid #ffd166 !important; box-shadow: 0 0 14px #ffd166 !important; border-radius: 6px; }
     </style>
-    <div class="hc-bar"><b>♥ Hearts Coach</b>
+    <div class="hc-bar"><b>♥ Hearts Coach <span class="hc-ver"></span></b>
       <select class="hc-dir" title="Pass direction this hand"><option value="left">Pass left</option><option value="right">Pass right</option><option value="across">Pass across</option><option value="hold">No pass</option></select>
       <button class="hc-min-btn" title="Minimise">–</button></div>
     <div class="hc-body">
@@ -1257,8 +1301,11 @@
     </div>`;
   const inSubFrame = (() => { try { return window.top !== window.self; } catch (e) { return true; } })();
   if (inSubFrame && !scanCards().length) { window.__heartsCoachLoaded = false; return; }
+  for (const stale of document.querySelectorAll('#hearts-coach-panel')) stale.remove();
   document.documentElement.appendChild(panel);
   const q = s => panel.querySelector(s);
+  q('.hc-ver').textContent = (typeof HEARTS_COACH_BUILD !== 'undefined' ? HEARTS_COACH_BUILD : '');
+  q('.hc-ver').style.cssText = 'font-weight:400;font-size:11px;color:#9db3a3';
   q('.hc-dir').value = cfg.passDirection;
   q('.hc-dir').onchange = e => { cfg.passDirection = e.target.value; tracker.passDirection = cfg.passDirection; saveCfg(); lastAdviceKey = ''; render(); };
   q('.hc-min-btn').onclick = () => { cfg.minimized = !cfg.minimized; saveCfg(); panel.classList.toggle('hc-min', cfg.minimized); };
@@ -1317,8 +1364,9 @@
     q('.hc-status').textContent = status + tap + (tracker.hand.length ? ` · Trick ${Math.min(13, tracker.tricks.length + 1)} · hand ${H.fmtList(tracker.hand)}` : '');
     q('.hc-warn').textContent = desync || '';
     if (!dealt) { q('.hc-advice').textContent = 'Waiting for a hand…'; q('.hc-intel').innerHTML = ''; highlight(null); return; }
-    const turn = tracker.whoseTurn();
-    const key = 'play:' + tracker.log.length + ':' + turn + ':' + tracker.moonMode;
+    let turn = tracker.whoseTurn();
+    if (prompt) turn = 0;   // the site prompts nobody but us, and the prompt is cleared once we play
+    const key = 'play:' + tracker.log.length + ':' + turn + ':' + tracker.moonMode + ':' + (prompt ? prompt.seq : 0);
     if (key === lastAdviceKey) return;
     lastAdviceKey = key;
     const want = protoSeatTurn();
@@ -1327,8 +1375,26 @@
       q('.hc-warn').textContent = desync;
     }
     if (tracker.handOver()) { q('.hc-advice').innerHTML = `<div class="hc-head">Hand over</div>Points: ${tracker.pointsTaken.map((p, i) => `${H.SEAT_NAMES[i]} ${p}`).join(', ')}`; highlight(null); return; }
-    const rec = tracker.recommend();
-    q('.hc-intel').innerHTML = rec.intel.map(l => `<li class="${/MOON/.test(l) ? 'hc-moon' : ''}">${esc(l)}</li>`).join('');
+    // Picked up mid-trick: the site says what is legal but we never saw the cards on the table.
+    if (prompt && !prompt.lead && !tracker.trick.plays.length) {
+      const blind = blindFollow(prompt, tracker);
+      q('.hc-advice').innerHTML = `<div class="hc-head">${esc(blind.headline)}</div><ul>${blind.reasons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+      q('.hc-intel').innerHTML = `<li class="hc-moon">The coach cannot see this trick — it joined the hand late. Full advice resumes next deal.</li>`;
+      highlight(blind.card);
+      log(`YOUR TURN → ${blind.headline}\n  ${blind.reasons.join('\n  ')}`);
+      return;
+    }
+    const st = tracker.state();
+    if (prompt && prompt.valid && prompt.valid.length) {
+      const stale = prompt.valid.some(c => !tracker.hand.some(h => h.id === c.id));
+      if (stale) { st.hand = prompt.hand; st.legalOverride = prompt.valid; }
+      else st.legalOverride = prompt.valid;
+    }
+    const rec = H.recommendPlay(st);
+    const intel = joinedMidHand
+      ? ['Counting is partial: the coach joined this hand late and did not see the earlier tricks.'].concat(rec.intel.slice(0, 1))
+      : rec.intel;
+    q('.hc-intel').innerHTML = intel.map(l => `<li class="${/MOON|partial/i.test(l) ? 'hc-moon' : ''}">${esc(l)}</li>`).join('');
     if (turn === 0 || (turn == null && tracker.hand.some(c => c.id === '2C'))) {
       let html = `<div class="hc-head">${esc(rec.headline)}</div><ul>${rec.reasons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
       if (rec.alternatives.length) html += `<div class="hc-intel">Also: ${rec.alternatives.map(a => `<b>${esc(H.fmt(a.card))}</b>${a.why ? ' — ' + esc(a.why) : ''}`).join(' · ')}</div>`;
@@ -1386,6 +1452,35 @@
     if (!n) lines.push('  (none)');
     return lines.join('\n');
   }
+  /**
+   * Following a trick we never saw. The site has told us which cards are legal,
+   * so decide from the hand alone and say plainly what is not known.
+   */
+  function blindFollow(pr, tr) {
+    const legal = pr.valid.slice().sort((a, b) => a.v - b.v);
+    const suits = new Set(legal.map(c => c.s));
+    const qsOut = !tr.hand.some(c => c.id === 'QS') && !tr.isPlayed('QS');
+    if (suits.size === 1) {
+      const suit = legal[0].s;
+      const low = legal[0];
+      const reasons = [
+        `${H.SUIT_NAME[suit]} were led and these are your only legal cards, so you must follow.`,
+        `Play the lowest, ${H.fmt(low)}. The coach cannot see what is already on the table, and the low card is the one that cannot cost you.`,
+      ];
+      if (legal.length > 1) reasons.push(`Your other choice is ${H.fmtList(legal.slice(1))}, which risks winning a trick you cannot see the points on.`);
+      return { card: low, headline: `Play ${H.fmt(low)}`, reasons };
+    }
+    // Several suits are legal, so we are void in the led suit: this is a free discard.
+    const qs = legal.find(c => c.id === 'QS');
+    if (qs) return { card: qs, headline: 'Play Q♠', reasons: ['You are void, so this is a discard, and the Queen of spades is 13 points you can hand to somebody else right now.'] };
+    const catcher = legal.filter(c => c.s === 'S' && c.v >= 12).sort((a, b) => b.v - a.v)[0];
+    if (catcher && qsOut) return { card: catcher, headline: `Play ${H.fmt(catcher)}`, reasons: [`You are void, so this is a discard. ${H.fmt(catcher)} catches the Queen of spades while she is still out there, so throw it away now.`] };
+    const heart = legal.filter(c => c.s === 'H').sort((a, b) => b.v - a.v)[0];
+    if (heart && heart.v >= 9) return { card: heart, headline: `Play ${H.fmt(heart)}`, reasons: [`You are void, so this is a discard. ${H.fmt(heart)} would win a heart trick later, so give it away instead.`] };
+    const high = legal.filter(c => c.s !== 'S' || c.v > 11).sort((a, b) => b.v - a.v)[0] || legal[legal.length - 1];
+    return { card: high, headline: `Play ${H.fmt(high)}`, reasons: ['You are void, so this is a discard.', `${H.fmt(high)} is your most dangerous card to keep. Low spades are worth holding, so they stay.`] };
+  }
+
   function calibrate() {
     const report = diagnosticReport();
     console.log('[hearts-coach] diagnostic\n' + report);
@@ -1401,8 +1496,16 @@
   // ------------------------------------------------------------ loop
   let timer = null;
   const tick = () => { try { step(); } catch (e) { status = 'error: ' + e.message; q('.hc-status').textContent = status; console.error('[hearts-coach]', e); } };
-  setInterval(tick, cfg.pollMs);
-  new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(tick, 60); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'src'] });
+  const loopTimer = setInterval(tick, cfg.pollMs);
+  const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(tick, 60); });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'src'] });
   tick();
-  window.heartsCoach = { get tracker() { return tracker; }, scanCards, classify, resync, cfg, H };
+  window.__heartsCoachTeardown = function () {
+    clearInterval(loopTimer);
+    try { observer.disconnect(); } catch (e) { /* ignore */ }
+    for (const el of document.querySelectorAll('#hearts-coach-panel')) el.remove();
+    window.__heartsCoachLoaded = false;
+    delete window.__heartsCoachTeardown;
+  };
+  window.heartsCoach = { get tracker() { return tracker; }, get prompt() { return prompt; }, scanCards, classify, resync, cfg, H, PROTO };
 })();

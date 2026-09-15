@@ -34,6 +34,9 @@
     messages: [],     // recent parsed objects
     cmds: {},         // cmd -> how many times seen
     turn: null,       // whose turn the site last said it was, in its own index
+    myHand: null,     // our remaining cards, from the site's own play prompt
+    valid: null,      // the legal plays, as the site states them
+    suggested: null,  // the site's own (weak) suggestion
     hand: null,       // latest full 13-card hand
     handSeq: 0,       // bumps whenever `hand` changes
     passed: null,     // cards we sent away
@@ -83,6 +86,23 @@
     push(state.messages, { t: Date.now(), direction, msg });
     const cmd = String(msg.cmd || msg.command || msg.type || '').toLowerCase();
     if (cmd) state.cmds[cmd] = (state.cmds[cmd] || 0) + 1;
+    // {"cmd":"play","valid_cards":"2H KH","invalid_cards":"3S 6S 6C 7C","lead_card":false,
+    //  "suggested":{"card":"2H",...}} — sent to us when it is our turn. valid + invalid is
+    // our whole remaining hand, and valid_cards is the legal set, stated by the game itself.
+    if (typeof msg.valid_cards === 'string' || typeof msg.validCards === 'string') {
+      const valid = H ? H.parseCards(msg.valid_cards || msg.validCards) : [];
+      const invalid = H ? H.parseCards(msg.invalid_cards || msg.invalidCards || '') : [];
+      if (valid.length) {
+        state.valid = valid;
+        state.myHand = valid.concat(invalid);
+        state.suggested = msg.suggested && msg.suggested.card && H ? H.parseCard(msg.suggested.card) : null;
+        emit({ kind: 'prompt', valid, invalid, hand: state.myHand, suggested: state.suggested,
+               lead: !!(msg.lead_card || msg.leadCard), startHand: !!(msg.start_hand || msg.startHand) });
+      }
+      return;
+    }
+    // Our own outgoing play carries no player index; card_was_played reports it back to us.
+    if (direction === 'out' && /^play$/.test(cmd)) return;
     // {"cmd":"waiting_for","waitingFor":[0,0,2,0]} — one non-zero slot is that player's turn.
     const wf = msg.waitingFor || msg.waiting_for;
     if (Array.isArray(wf) && wf.length === 4) {
@@ -157,10 +177,15 @@
   function start() {
     if (state.started) return state;
     state.started = true;
+    const g = typeof window !== 'undefined' ? window : {};
     // Console tap. The game logs both directions; "sending" marks our own messages.
+    // Restore any hook an older copy installed first, so only the newest is ever live.
+    g.__heartsCoachConsole = g.__heartsCoachConsole || {};
     for (const level of ['log', 'info', 'debug']) {
+      if (g.__heartsCoachConsole[level]) console[level] = g.__heartsCoachConsole[level];
       const orig = console[level];
       if (typeof orig !== 'function') continue;
+      g.__heartsCoachConsole[level] = orig;
       console[level] = function () {
         try {
           const text = Array.prototype.map.call(arguments, a => (typeof a === 'string' ? a : safeStr(a))).join(' ');
@@ -171,8 +196,10 @@
     }
     // WebSocket tap, for sites that do not log.
     try {
+      if (g.__heartsCoachWS) window.WebSocket = g.__heartsCoachWS;
       const OrigWS = window.WebSocket;
       if (OrigWS) {
+        g.__heartsCoachWS = OrigWS;
         const Wrapped = function (url, protocols) {
           const ws = protocols === undefined ? new OrigWS(url) : new OrigWS(url, protocols);
           ws.addEventListener('message', e => { try { feed(typeof e.data === 'string' ? e.data : '', 'in'); } catch (err) { /* ignore */ } });
@@ -199,6 +226,8 @@
       'Hand: ' + (state.hand && H ? H.fmtList(state.hand) : 'none'),
       'Passed: ' + (state.passed && H ? H.fmtList(state.passed) : 'none') + '   Received: ' + (state.received && H ? H.fmtList(state.received) : 'none'),
       'Turn (site index): ' + state.turn,
+      'Remaining hand (from prompt): ' + (state.myHand && H ? H.fmtList(state.myHand) : 'none'),
+      'Legal now: ' + (state.valid && H ? H.fmtList(state.valid) : 'none'),
       'Plays recognised: ' + state.plays.length + (state.plays.length && H ? ' (last: ' + state.plays.slice(-6).map(p => 'seat' + p.seat + ':' + H.fmt(p.card)).join(' ') + ')' : ''),
       '',
       'Single-card messages not recognised as plays (' + state.unknown.length + '):',

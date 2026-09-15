@@ -22,7 +22,8 @@ const header = `// ==UserScript==
 // @grant        none
 // ==/UserScript==
 `;
-const userscript = header + '\n' + read('src/engine.js') + '\n' + read('src/protocol.js') + '\n' + read('src/overlay.js');
+const stamp = 'var HEARTS_COACH_BUILD = ' + JSON.stringify(new Date().toISOString().slice(5, 16).replace('T', ' ')) + ';\n';
+const userscript = header + '\n' + stamp + read('src/engine.js') + '\n' + read('src/protocol.js') + '\n' + read('src/overlay.js');
 fs.writeFileSync(path.join(root, 'dist/hearts-coach.user.js'), userscript);
 
 const app = read('app/index.html').replace('<script src="../src/engine.js"></script>', '<script>\n' + read('src/engine.js') + '\n</script>');

@@ -626,7 +626,7 @@
   function recommendPlay(state) {
     state = normalizeState(state);
     const a = analyze(state);
-    const legal = legalPlays(state);
+    const legal = state.legalOverride && state.legalOverride.length ? state.legalOverride : legalPlays(state);
     const intel = intelLines(state, a);
     if (!legal.length) return { card: null, headline: 'No cards', reasons: [], alternatives: [], intel, legal, phase: 'none' };
     const leading = state.trick.plays.length === 0;
@@ -661,6 +661,7 @@
     for (const k in st.voids) if (!(st.voids[k] instanceof Set)) st.voids[k] = new Set(st.voids[k]);
     if (st.passedCards) st.passedCards = parseCards(st.passedCards);
     st.extraPlayed = parseCards(st.extraPlayed || []);
+    if (st.legalOverride) st.legalOverride = parseCards(st.legalOverride);
     if (st.heartsBroken == null) {
       st.heartsBroken = st.tricks.some(t => t.plays.some(p => p.card.s === 'H')) || st.trick.plays.some(p => p.card.s === 'H');
       if (st.opts && st.opts.qsBreaksHearts) st.heartsBroken = st.heartsBroken || st.tricks.some(t => t.plays.some(p => p.card.id === 'QS'));
