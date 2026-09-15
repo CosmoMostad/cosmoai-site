@@ -1,0 +1,16 @@
+{
+  "name": "hearts-coach",
+  "version": "0.1.0",
+  "description": "Pro-level Hearts decision support: explained pass/play recommendations, a cardgames.io overlay, and a manual-entry coach app",
+  "license": "MIT",
+  "main": "src/engine.js",
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.js",
+    "app": "node scripts/build.js && npx --yes serve dist",
+    "watch": "node watch/watch.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.50.0"
+  }
+}
