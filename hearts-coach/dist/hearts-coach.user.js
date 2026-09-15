@@ -1,12 +1,15 @@
 // ==UserScript==
-// @name         Hearts Coach (cardgames.io)
+// @name         Hearts Coach
 // @namespace    https://github.com/cosmomostad/hearts-coach
 // @version      0.1.0
-// @description  Pro-level Hearts pass and play advice, with the reasoning, overlaid on cardgames.io
+// @description  Pro-level Hearts pass and play advice, with the reasoning, overlaid on the Hearts site you are playing
 // @author       cosmomostad
-// @match        https://cardgames.io/hearts/*
-// @match        https://cardgames.io/hearts
-// @match        https://cardgames.io/*hearts*
+// @match        https://cardgames.io/*
+// @match        https://*.cardgames.io/*
+// @match        https://letsplayhearts.com/*
+// @match        https://*.letsplayhearts.com/*
+// @match        https://*.playok.com/*
+// @match        https://worldofcardgames.com/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -725,23 +728,54 @@
   function visible(el) {
     const r = el.getBoundingClientRect();
     if (r.width < 8 || r.height < 8) return false;
-    const cs = getComputedStyle(el);
+    const view = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+    const cs = view.getComputedStyle(el);
     return cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) !== 0;
+  }
+  /** Documents to search: this one, plus any same-origin iframe, with its offset. */
+  function searchRoots() {
+    const roots = [{ doc: document, dx: 0, dy: 0 }];
+    for (const f of document.querySelectorAll('iframe')) {
+      let d = null;
+      try { d = f.contentDocument; } catch (e) { d = null; }
+      if (!d) continue;
+      const r = f.getBoundingClientRect();
+      roots.push({ doc: d, dx: r.left, dy: r.top });
+    }
+    return roots;
+  }
+  /** Large canvases and cross-origin iframes, which DOM scraping cannot see into. */
+  function opaqueSurfaces() {
+    const canvases = [], frames = [];
+    for (const c of document.querySelectorAll('canvas')) {
+      const r = c.getBoundingClientRect();
+      if (r.width >= 300 && r.height >= 200) canvases.push({ el: c, w: Math.round(r.width), h: Math.round(r.height) });
+    }
+    for (const f of document.querySelectorAll('iframe')) {
+      let ok = false;
+      try { ok = !!f.contentDocument; } catch (e) { ok = false; }
+      const r = f.getBoundingClientRect();
+      if (!ok && r.width >= 300 && r.height >= 200) frames.push({ el: f, src: f.src || '(no src)', w: Math.round(r.width), h: Math.round(r.height) });
+    }
+    return { canvases, frames };
   }
   /** Find every face-up card element on the page with its position. */
   function scanCards() {
-    const sel = cfg.cardSelector || '[class*="card" i], [id*="card" i], [data-card], [data-rank], img, [class*="suit" i]';
+    const sel = cfg.cardSelector || '[class*="card" i], [id*="card" i], [data-card], [data-rank], [data-value], img, [class*="suit" i], [class*="hand" i] > *';
     const found = new Map(); // id -> {card, el, rect}
-    let nodes;
-    try { nodes = document.querySelectorAll(sel); } catch (e) { nodes = document.querySelectorAll('[class*="card" i]'); }
-    for (const el of nodes) {
-      if (el.closest && el.closest('#hearts-coach-panel')) continue;
-      if (looksFaceDown(el) || !visible(el)) continue;
-      const card = cardFromElement(el);
-      if (!card) continue;
-      const rect = el.getBoundingClientRect();
-      const prev = found.get(card.id);
-      if (!prev || rect.width * rect.height > prev.rect.width * prev.rect.height) found.set(card.id, { card, el, rect });
+    for (const { doc, dx, dy } of searchRoots()) {
+      let nodes;
+      try { nodes = doc.querySelectorAll(sel); } catch (e) { try { nodes = doc.querySelectorAll('[class*="card" i]'); } catch (e2) { continue; } }
+      for (const el of nodes) {
+        if (el.closest && el.closest('#hearts-coach-panel')) continue;
+        if (looksFaceDown(el) || !visible(el)) continue;
+        const card = cardFromElement(el);
+        if (!card) continue;
+        const r = el.getBoundingClientRect();
+        const rect = { left: r.left + dx, top: r.top + dy, width: r.width, height: r.height };
+        const prev = found.get(card.id);
+        if (!prev || rect.width * rect.height > prev.rect.width * prev.rect.height) found.set(card.id, { card, el, rect });
+      }
     }
     return [...found.values()];
   }
@@ -811,7 +845,7 @@
         }
       }
     }
-    if (!dealt) { status = handCards.length ? `Seeing ${handCards.length} cards — waiting for a full 13-card deal.` : 'No cards detected yet. Click Calibrate if a game is on screen.'; render(); return; }
+    if (!dealt) { status = handCards.length ? `Seeing ${handCards.length} cards — waiting for a full 13-card deal.` : noCardsHint(); render(); return; }
 
     // Passing phase: 13 cards, nothing played, direction not hold.
     const passing = tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
@@ -847,6 +881,14 @@
       if (missing.length || extra.length) desync = `Hand mismatch (tracker has ${H.fmtList(missing)} you don't; screen shows ${H.fmtList(extra)} the tracker lacks). Click Resync.`;
     }
     render();
+  }
+
+  /** Why we might be seeing nothing, in the user's terms. */
+  function noCardsHint() {
+    const { canvases, frames } = opaqueSurfaces();
+    if (canvases.length) return `This game draws to a canvas (${canvases[0].w}x${canvases[0].h}), so there are no card elements to read. The overlay cannot work here — use the manual coach app instead.`;
+    if (frames.length) return `The game sits in an iframe from another site (${frames[0].src}). Add that address to the script's @match list so the overlay loads inside it too.`;
+    return 'No cards detected yet. Start a hand, then click Calibrate.';
   }
 
   function newHand(handCards) {
@@ -920,6 +962,8 @@
       </div>
       <div class="hc-status"></div>
     </div>`;
+  const inSubFrame = (() => { try { return window.top !== window.self; } catch (e) { return true; } })();
+  if (inSubFrame && !scanCards().length) { window.__heartsCoachLoaded = false; return; }
   document.documentElement.appendChild(panel);
   const q = s => panel.querySelector(s);
   q('.hc-dir').value = cfg.passDirection;
@@ -990,19 +1034,58 @@
     }
   }
 
-  function calibrate() {
+  function describe(el) {
+    const a = [];
+    if (el.id) a.push(`id="${el.id}"`);
+    if (el.className && typeof el.className === 'string') a.push(`class="${el.className}"`);
+    for (const k of Object.keys(el.dataset || {})) a.push(`data-${k}="${el.dataset[k]}"`);
+    const src = el.getAttribute && el.getAttribute('src');
+    if (src) a.push(`src="${src.split('/').slice(-2).join('/')}"`);
+    const txt = (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 20);
+    if (txt) a.push(`text="${txt}"`);
+    return `<${el.tagName.toLowerCase()} ${a.join(' ')}>`;
+  }
+  function diagnosticReport() {
     const items = scanCards();
     const { hand, trick, center } = classify(items);
+    const { canvases, frames } = opaqueSurfaces();
     const lines = [
-      `Detected ${items.length} face-up card elements.`,
+      `Hearts Coach diagnostic — ${location.href}`,
+      `Selector: ${cfg.cardSelector || '(auto)'}`,
+      `Face-up cards found: ${items.length}`,
       `Hand (${hand.length}): ${H.fmtList(hand.map(i => i.card))}`,
-      `Table (${trick.length}): ${trick.map(i => `${H.fmt(i.card)}→${H.SEAT_NAMES[seatByPosition(i, center)]}`).join(' ')}`,
-      `Card selector: ${cfg.cardSelector || '(auto)'}`,
+      `Table (${trick.length}): ${center ? trick.map(i => `${H.fmt(i.card)}->${H.SEAT_NAMES[seatByPosition(i, center)]}`).join(' ') : ''}`,
+      `Large canvases: ${canvases.length ? canvases.map(c => `${c.w}x${c.h}`).join(', ') : 'none'}`,
+      `Cross-origin iframes: ${frames.length ? frames.map(f => f.src).join(', ') : 'none'}`,
+      '',
+      'Matched elements:',
+      ...items.slice(0, 8).map(i => `  ${H.fmt(i.card)}  ${describe(i.el)}`),
+      '',
+      'Unmatched candidates:',
     ];
-    const sample = items.slice(0, 5).map(i => `${H.fmt(i.card)} <${i.el.tagName.toLowerCase()} id="${i.el.id}" class="${typeof i.el.className === 'string' ? i.el.className : ''}">`);
-    console.log('[hearts-coach] calibrate', { items, hand, trick, center });
-    const sel = prompt(lines.concat(['', 'Sample elements:'], sample, ['', 'If the hand/table are wrong, enter a CSS selector for card elements (blank = auto):']).join('\n'), cfg.cardSelector);
-    if (sel != null) { cfg.cardSelector = sel.trim(); saveCfg(); lastAdviceKey = ''; }
+    const seen = new Set(items.map(i => i.el));
+    let n = 0;
+    for (const { doc } of searchRoots()) {
+      let nodes = [];
+      try { nodes = doc.querySelectorAll('[class*="card" i], [id*="card" i], [data-card], [class*="hand" i] > *, img'); } catch (e) { continue; }
+      for (const el of nodes) {
+        if (seen.has(el) || (el.closest && el.closest('#hearts-coach-panel')) || !visible(el)) continue;
+        lines.push('  ' + describe(el));
+        if (++n >= 12) break;
+      }
+      if (n >= 12) break;
+    }
+    if (!n) lines.push('  (none)');
+    return lines.join('\n');
+  }
+  function calibrate() {
+    const report = diagnosticReport();
+    console.log('[hearts-coach] diagnostic\n' + report);
+    let copied = false;
+    try { navigator.clipboard.writeText(report); copied = true; } catch (e) { /* ignore */ }
+    const sel = prompt(report + '\n\n' + (copied ? 'Copied to your clipboard — paste it to Claude.' : 'Also printed to the console.') +
+      '\n\nIf the hand or table is wrong, enter a CSS selector for card elements (blank = auto):', cfg.cardSelector);
+    if (sel != null) { cfg.cardSelector = sel.trim(); saveCfg(); lastAdviceKey = ''; render(); }
   }
 
   function log(msg) { if (cfg.log) console.log('[hearts-coach] ' + msg); }

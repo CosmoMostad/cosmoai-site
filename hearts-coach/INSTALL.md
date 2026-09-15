@@ -2,6 +2,12 @@
 
 Three ways, fastest first. All of them read only what is already on your screen: your own hand and the cards played to the table. Face-down cards are ignored.
 
+## Which sites it works on
+
+The overlay is not tied to one site. It looks for card elements by id, class, `data-*` attributes, image filenames and the rank and suit printed on the card face, and it searches same-origin iframes as well as the main page. The bundled `@match` list covers cardgames.io, letsplayhearts.com, playok.com and worldofcardgames.com; add any other address to that list at the top of the file.
+
+**One hard limit.** If a site draws its table to a `<canvas>` rather than with HTML elements, there is nothing in the page for the overlay to read, and no selector will change that. The panel says so plainly when it detects this. Use the manual coach app for those sites.
+
 ## Get the code onto your machine
 
 ```bash
@@ -75,4 +81,4 @@ The browser profile persists in `~/.hearts-coach-profile`, so settings and login
 
 cardgames.io changes its markup from time to time. The detector tries element ids, classes, `data-*` attributes, image filenames, and the rank and suit text on the card face.
 
-Click **Calibrate**. It prints what it found and drops the detail into the console under `[hearts-coach] calibrate`. Copy that output into an issue, or paste it back to Claude, and the selector can be pinned in one line.
+Click **Calibrate**. It builds a diagnostic report, copies it to your clipboard and prints it to the console. The report lists the cards it matched, the elements they came from, the elements it rejected, and whether the page uses a canvas or a cross-origin iframe. Paste that report back to Claude and the selector can be pinned in one line.

@@ -1,12 +1,12 @@
 # Hearts Coach
 
-Pro-level Hearts decision support: which three cards to pass, what to play on every trick, and **why**. Built for [cardgames.io](https://cardgames.io/hearts/) but the engine is site-agnostic.
+Pro-level Hearts decision support: which three cards to pass, what to play on every trick, and **why**. The overlay works on any Hearts site that draws its cards with HTML elements, including [cardgames.io](https://cardgames.io/hearts/) and [letsplayhearts.com](https://letsplayhearts.com/); the engine itself is site-agnostic.
 
 Three ways to use it:
 
 | Mode | What it does | Setup |
 |---|---|---|
-| **Overlay** (`dist/hearts-coach.user.js`) | Reads your hand and the table from the cardgames.io page and shows advice in a floating panel, highlighting the recommended card. | Tampermonkey / Safari Userscripts, one install |
+| **Overlay** (`dist/hearts-coach.user.js`) | Reads your hand and the table from the game page and shows advice in a floating panel, highlighting the recommended card. | Tampermonkey / Safari Userscripts, one install |
 | **Terminal watcher** (`npm run watch`) | Opens cardgames.io in a Chromium window with the overlay injected and prints each recommendation to your terminal, chat-style. | Node + Playwright |
 | **Manual coach app** (`app/index.html`) | Enter your hand and each card as it is played; the coach advises every decision. Works with any Hearts game, online or at a kitchen table. | Open the file |
 
@@ -30,7 +30,7 @@ npm run build     # writes dist/hearts-coach.user.js and dist/index.html
 
 The overlay never reads face-down cards. It only uses what you can see: your hand and the cards played to the table.
 
-**If the panel says it cannot see cards**, click **Calibrate**. It lists what it found and lets you enter a CSS selector for the card elements. cardgames.io changes its markup occasionally; the detector tries element ids, classes, `data-*` attributes, image filenames and the rank/suit text on the card face, so one of those usually works. Please open an issue with the calibrate output if it does not.
+**If the panel says it cannot see cards**, click **Calibrate**. It copies a diagnostic report to your clipboard listing what matched, what did not, and whether the page uses a canvas or a cross-origin iframe, and lets you enter a CSS selector. A canvas-drawn game cannot be read at all; use the manual app for those.
 
 **If the coach falls out of sync** (fast animations can hide a card from the poll), click **Resync**. It re-reads your hand and keeps the card counts, voids and points it already knows.
 

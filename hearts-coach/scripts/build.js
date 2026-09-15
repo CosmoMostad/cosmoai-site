@@ -7,14 +7,17 @@ const pkg = JSON.parse(read('package.json'));
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 
 const header = `// ==UserScript==
-// @name         Hearts Coach (cardgames.io)
+// @name         Hearts Coach
 // @namespace    https://github.com/cosmomostad/hearts-coach
 // @version      ${pkg.version}
-// @description  Pro-level Hearts pass and play advice, with the reasoning, overlaid on cardgames.io
+// @description  Pro-level Hearts pass and play advice, with the reasoning, overlaid on the Hearts site you are playing
 // @author       cosmomostad
-// @match        https://cardgames.io/hearts/*
-// @match        https://cardgames.io/hearts
-// @match        https://cardgames.io/*hearts*
+// @match        https://cardgames.io/*
+// @match        https://*.cardgames.io/*
+// @match        https://letsplayhearts.com/*
+// @match        https://*.letsplayhearts.com/*
+// @match        https://*.playok.com/*
+// @match        https://worldofcardgames.com/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
