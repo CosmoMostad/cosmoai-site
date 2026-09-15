@@ -163,6 +163,9 @@
   let tracker = new H.HandTracker();
   let dealt = null;            // the 13 cards first seen this hand
   let lastAdviceKey = '';
+  let lastProtoSeq = -1;
+  const PROTO = (typeof HeartsProtocol !== 'undefined') ? HeartsProtocol : (window.HeartsProtocol || null);
+  if (PROTO) { try { PROTO.start(); } catch (e) { console.warn('[hearts-coach] protocol tap failed', e); } }
   let status = 'Waiting for a hand…';
   let desync = null;
 
@@ -170,14 +173,19 @@
   function sameSet(a, b) { return a.length === b.length && ids(a) === ids(b); }
 
   function step() {
+    // A site that broadcasts its own state beats anything we can read off the screen.
+    if (PROTO && PROTO.state.hand && PROTO.state.handSeq !== lastProtoSeq) {
+      lastProtoSeq = PROTO.state.handSeq;
+      handFromProtocol(PROTO.state);
+    }
     let items;
     try { items = scanCards(); } catch (e) { status = 'scan error: ' + e.message; render(); return; }
     const { hand, trick, center } = classify(items);
     const handCards = hand.map(i => i.card);
     const trickIds = new Set(trick.map(i => i.card.id));
 
-    // New hand?
-    if (handCards.length === 13 && (!dealt || (tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !sameSet(hand, dealt.map(c => ({ card: c })))))) {
+    // New hand? (Skipped once the protocol tap is feeding us hands.)
+    if (!(PROTO && PROTO.state.hand) && handCards.length === 13 && (!dealt || (tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !sameSet(hand, dealt.map(c => ({ card: c })))))) {
       if (!dealt) {
         newHand(handCards);
       } else if (cfg.passDirection === 'hold' || tracker.receivedCards.length) {
@@ -201,7 +209,7 @@
     if (!dealt) { status = handCards.length ? `Seeing ${handCards.length} cards — waiting for a full 13-card deal.` : noCardsHint(); render(); return; }
 
     // Passing phase: 13 cards, nothing played, direction not hold.
-    const passing = tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
+    const passing = !(PROTO && PROTO.state.hand) && tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
     if (passing) { renderPass(); return; }
 
     // Play phase: record new cards on the table in seat order.
@@ -242,6 +250,18 @@
     if (canvases.length) return `This game draws to a canvas (${canvases[0].w}x${canvases[0].h}), so there are no card elements to read. The overlay cannot work here — use the manual coach app instead.`;
     if (frames.length) return `The game sits in an iframe from another site (${frames[0].src}). Add that address to the script's @match list so the overlay loads inside it too.`;
     return 'No cards detected yet. Start a hand, then click Calibrate.';
+  }
+
+  /** Start a hand from the site's own message: authoritative, and already past the pass. */
+  function handFromProtocol(ps) {
+    tracker = new H.HandTracker();
+    tracker.setHand(ps.hand);
+    if (ps.passed || ps.received) tracker.setPassInfo(ps.passed, ps.received, cfg.passDirection);
+    dealt = tracker.hand.slice();
+    desync = null; lastAdviceKey = '';
+    status = ps.passed
+      ? `Hand read from the site. You passed ${H.fmtList(ps.passed)} and got ${H.fmtList(ps.received || [])}.`
+      : 'Hand read from the site.';
   }
 
   function newHand(handCards) {
@@ -311,6 +331,7 @@
         <button class="hc-resync">Resync</button>
         <button class="hc-newhand">New hand</button>
         <button class="hc-calib">Calibrate</button>
+        <button class="hc-proto" title="Copy this site's message log for diagnosis">Copy log</button>
         <label title="Print advice to the console (used by the terminal watcher)"><input type="checkbox" class="hc-log"> Log</label>
       </div>
       <div class="hc-status"></div>
@@ -329,6 +350,14 @@
   q('.hc-log').checked = !!cfg.log;
   q('.hc-log').onchange = e => { cfg.log = e.target.checked; saveCfg(); };
   q('.hc-calib').onclick = calibrate;
+  q('.hc-proto').onclick = () => {
+    if (!PROTO) { alert('Protocol tap not loaded.'); return; }
+    const text = PROTO.report();
+    console.log('[hearts-coach] ' + text);
+    let ok = false;
+    try { navigator.clipboard.writeText(text); ok = true; } catch (e) { /* ignore */ }
+    alert(text.split('\n').slice(0, 8).join('\n') + '\n\n' + (ok ? 'Full log copied to your clipboard — paste it to Claude.' : 'Full log printed to the console.'));
+  };
   if (cfg.x != null) { panel.style.left = cfg.x + 'px'; panel.style.top = cfg.y + 'px'; panel.style.right = 'auto'; }
   (function drag() {
     let sx, sy, ox, oy, on = false;
@@ -365,7 +394,8 @@
   }
 
   function render() {
-    q('.hc-status').textContent = status + (tracker.hand.length ? ` · Trick ${Math.min(13, tracker.tricks.length + 1)} · hand ${H.fmtList(tracker.hand)}` : '');
+    const tap = PROTO && PROTO.state.active ? ' · reading the site\u2019s own messages' : '';
+    q('.hc-status').textContent = status + tap + (tracker.hand.length ? ` · Trick ${Math.min(13, tracker.tricks.length + 1)} · hand ${H.fmtList(tracker.hand)}` : '');
     q('.hc-warn').textContent = desync || '';
     if (!dealt) { q('.hc-advice').textContent = 'Waiting for a hand…'; q('.hc-intel').innerHTML = ''; highlight(null); return; }
     const turn = tracker.whoseTurn();

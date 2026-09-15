@@ -703,6 +703,11 @@
         case 'pass': this.passDirection = op.direction; this.passedCards = parseCards(op.cards); this.hand = sortHand(this.hand.filter(c => !has(this.passedCards, c.id))); break;
         case 'receive': this.receivedCards = parseCards(op.cards); this.hand = sortHand(uniq(this.hand.concat(this.receivedCards))); break;
         case 'moon': this.moonMode = !!op.on; break;
+        case 'passinfo':
+          this.passDirection = op.direction;
+          this.passedCards = parseCards(op.passed || []);
+          this.receivedCards = parseCards(op.received || []);
+          break;
         case 'seen': this.extraPlayed = uniq(this.extraPlayed.concat(parseCards(op.cards))); break;
         case 'void': this.voids[op.seat].add(op.suit); break;
         case 'points': this.pointsTaken = op.pointsTaken.slice(); break;
@@ -733,6 +738,8 @@
     setMoonMode(on) { return this._push({ type: 'moon', on: !!on }); }
     /** Mark cards as already played without knowing who played them (used when a trick was missed). */
     markSeen(cards) { return this._push({ type: 'seen', cards: parseCards(cards).map(c => c.id) }); }
+    /** Record a pass that already happened, without changing the hand. */
+    setPassInfo(passed, received, direction) { return this._push({ type: 'passinfo', passed: parseCards(passed || []).map(c => c.id), received: parseCards(received || []).map(c => c.id), direction: direction || 'left' }); }
     markVoid(seat, suit) { return this._push({ type: 'void', seat, suit }); }
     setPointsTaken(arr) { return this._push({ type: 'points', pointsTaken: arr.slice() }); }
     setLeader(seat) { return this._push({ type: 'leader', seat }); }

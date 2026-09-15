@@ -2,6 +2,21 @@
 
 Three ways, fastest first. All of them read only what is already on your screen: your own hand and the cards played to the table. Face-down cards are ignored.
 
+## Reading the site's own messages
+
+Some sites, letsplayhearts.com among them, print their whole network conversation to the browser console:
+
+```
+received network message {"cards":{"cards":"KS QH JH"},"cmd":"cards_were_passed",
+                          "hand":{"cards":"3S 6S 8S 10S KS JH QH 5C 3D 7D 8D 10D QD"}}
+```
+
+The overlay watches for that and prefers it over reading the screen, because it is exact and because it states your hand *after* the pass, which screen reading cannot work out by itself. When the tap is live the panel's footer says so. Nothing is ever sent; the tap only listens.
+
+The tap starts working from the next deal after you load the overlay, so if you paste mid-hand it falls back to reading the screen until the next hand begins.
+
+**Copy log** in the panel copies what the site has said so far, including any message the tap did not understand. That is the fastest way to teach it a new site.
+
 ## Which sites it works on
 
 The overlay is not tied to one site. It looks for card elements by id, class, `data-*` attributes, image filenames and the rank and suit printed on the card face, and it searches same-origin iframes as well as the main page. The bundled `@match` list covers cardgames.io, letsplayhearts.com, playok.com and worldofcardgames.com; add any other address to that list at the top of the file.

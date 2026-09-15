@@ -22,7 +22,7 @@ const header = `// ==UserScript==
 // @grant        none
 // ==/UserScript==
 `;
-const userscript = header + '\n' + read('src/engine.js') + '\n' + read('src/overlay.js');
+const userscript = header + '\n' + read('src/engine.js') + '\n' + read('src/protocol.js') + '\n' + read('src/overlay.js');
 fs.writeFileSync(path.join(root, 'dist/hearts-coach.user.js'), userscript);
 
 const app = read('app/index.html').replace('<script src="../src/engine.js"></script>', '<script>\n' + read('src/engine.js') + '\n</script>');
