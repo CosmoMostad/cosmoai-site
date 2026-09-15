@@ -171,6 +171,7 @@
   let protoTurn = null;      // whose turn the site says it is, in its index
   let joinedMidHand = false;
   let prompt = null;         // the site's live play prompt: our hand and what is legal right now
+  let passPrompt = null;     // the site asking us to choose three cards to pass
   const PROTO = (typeof HeartsProtocol !== 'undefined') ? HeartsProtocol : (window.HeartsProtocol || null);
   if (PROTO) { try { PROTO.start(); } catch (e) { console.warn('[hearts-coach] protocol tap failed', e); } }
   let status = 'Waiting for a hand…';
@@ -214,6 +215,15 @@
     }
     if (!dealt) { status = handCards.length ? `Seeing ${handCards.length} cards — waiting for a full 13-card deal.` : noCardsHint(); render(); return; }
 
+    // The site asks for a pass, or the page's own button says so.
+    const pagePass = passPhaseFromPage();
+    if (tracker.hand.length === 13 && !tracker.tricks.length && !tracker.trick.plays.length
+        && (passPrompt || (pagePass && pagePass !== 'hold'))) {
+      if (pagePass && pagePass !== 'unknown' && pagePass !== cfg.passDirection) {
+        cfg.passDirection = pagePass; saveCfg(); q('.hc-dir').value = pagePass; lastAdviceKey = '';
+      }
+      renderPass(); return;
+    }
     // Passing phase: 13 cards, nothing played, direction not hold.
     const passing = !protoDriven && tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
     if (passing) { renderPass(); return; }
@@ -277,10 +287,16 @@
     if (!evs.length) return;
     for (const ev of evs) {
       lastEventSeq = ev.seq;
-      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; prompt = null; }
+      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; prompt = null; passPrompt = null; }
       else if (ev.kind === 'play') pendingPlays.push(ev);
       else if (ev.kind === 'turn') protoTurn = ev.seat;
-      else if (ev.kind === 'prompt') { prompt = ev; lastAdviceKey = ''; }
+      else if (ev.kind === 'prompt') { prompt = ev; passPrompt = null; lastAdviceKey = ''; }
+      else if (ev.kind === 'passprompt') {
+        passPrompt = ev;
+        const dir = DIR_CODE[ev.direction];
+        if (dir) { cfg.passDirection = dir; saveCfg(); q('.hc-dir').value = dir; }
+        lastAdviceKey = '';
+      }
     }
     // The prompt states our remaining hand outright, so we can start mid-hand instead of waiting.
     if (prompt && !dealt) {
@@ -306,6 +322,19 @@
     }
     pendingPlays = [];
     lastAdviceKey = '';
+  }
+
+  const DIR_CODE = { 0: 'hold', 1: 'left', 2: 'right', 3: 'across' };
+
+  /** The passing phase, read from the page itself: the button says which way. */
+  function passPhaseFromPage() {
+    let text = '';
+    try { text = (document.body.innerText || '').slice(0, 5000); } catch (e) { return null; }
+    const m = text.match(/pass\s+(left|right|across)/i);
+    if (m) return m[1].toLowerCase();
+    if (/(keep|hold)\s+your\s+cards|no\s+pass/i.test(text)) return 'hold';
+    if (/pass\s+\d+\s+cards?/i.test(text)) return 'unknown';
+    return null;
   }
 
   /** The site's idea of whose turn it is, in our seat numbering. */
@@ -432,18 +461,22 @@
     addEventListener('mouseup', () => { if (!on) return; on = false; const r = panel.getBoundingClientRect(); cfg.x = r.left; cfg.y = r.top; saveCfg(); });
   })();
 
-  let highlighted = null;
-  function highlight(card) {
-    if (highlighted) { highlighted.classList.remove('hc-rec-card'); highlighted = null; }
-    if (!card) return;
+  let highlighted = [];
+  function highlight(cards) {
+    for (const el of highlighted) el.classList.remove('hc-rec-card');
+    highlighted = [];
+    const list = !cards ? [] : (Array.isArray(cards) ? cards : [cards]);
+    if (!list.length) return;
     const items = scanCards();
-    const it = items.find(i => i.card.id === card.id);
-    if (it) { it.el.classList.add('hc-rec-card'); highlighted = it.el; }
+    for (const c of list) {
+      const it = items.find(i => i.card.id === c.id);
+      if (it) { it.el.classList.add('hc-rec-card'); highlighted.push(it.el); }
+    }
   }
   function esc(s) { return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
 
   function renderPass() {
-    const key = 'pass:' + tracker.hand.map(c => c.id).join(',') + cfg.passDirection;
+    const key = 'pass:' + tracker.hand.map(c => c.id).join(',') + cfg.passDirection + (passPrompt ? 'p' : '');
     if (key === lastAdviceKey) return;
     lastAdviceKey = key;
     tracker.passDirection = cfg.passDirection;
@@ -455,7 +488,8 @@
     q('.hc-intel').innerHTML = '';
     q('.hc-warn').textContent = '';
     q('.hc-status').textContent = `Passing ${cfg.passDirection}. Hand: ${H.fmtList(tracker.hand)}`;
-    highlight(null);
+    q('.hc-warn').textContent = '';
+    highlight(r.pass);
     log(`PASS ${H.fmtList(r.pass)} (${cfg.passDirection})\n  ${r.reasons.join('\n  ')}\n  Plan: ${r.plan.join(' ')}`);
   }
 

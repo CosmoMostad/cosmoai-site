@@ -14,7 +14,7 @@
 // @grant        none
 // ==/UserScript==
 
-var HEARTS_COACH_BUILD = "09-15 03:29";
+var HEARTS_COACH_BUILD = "09-15 03:35";
 /*
  * Hearts Coach — strategy engine
  * Pure, dependency-free. Works in Node (module.exports) and browsers (window.HeartsCoach).
@@ -166,8 +166,9 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
         ? { 14: 42, 13: 36, 12: 28, 11: 18, 10: 10, 9: 5, 8: 2, 7: 0, 6: 0, 5: 0, 4: -12, 3: -12, 2: -12 }
         : { 14: 60, 13: 50, 12: 38, 11: 25, 10: 14, 9: 6, 8: 2, 7: 0, 6: 0, 5: 0, 4: -12, 3: -12, 2: -12 };
       d = table[card.v];
-      if (club && card.v >= 13 && has(hand, '2C')) { d += 10; why.push('you hold the 2♣ so you lead trick one and cannot dump this club on the free first trick'); }
+      if (club && card.v >= 13 && has(hand, '2C')) { d += 10; why.push(`you hold the 2♣ so you lead trick one and cannot dump ${fmt(card)} on the free first trick`); }
       else if (club && card.v >= 13) why.push(`${fmt(card)} can often be shed on the point-free first trick, so it is only mildly dangerous`);
+      else if (club && card.v === 12) why.push(`${fmt(card)} will win a club trick once the aces and kings are gone, and clubs run out early`);
       if (!club && card.v >= 12) why.push(`${fmt(card)} tends to win a diamond trick late, exactly when hearts get dumped on it`);
       if (card.v <= 4) why.push(`${fmt(card)} is a safe exit card — keep it`);
       if (suitLen === 1) { d += 45; why.push(`singleton ${SUIT_NAME[card.s]}: passing it makes you void, so you can dump the Q♠ or high hearts on ${SUIT_NAME[card.s]} leads`); }
@@ -188,7 +189,7 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     const moon = evaluateMoon(hand);
     const scored = hand.map(c => passDanger(c, hand, direction, opts)).sort((a, b) => b.danger - a.danger);
     const pass = scored.slice(0, 3);
-    const reasons = pass.map(p => `${fmt(p.card)}: ${p.why[0] || 'highest remaining liability'}${p.why.length > 1 ? ' (' + p.why.slice(1).join('; ') + ')' : ''}`);
+    const reasons = pass.map(p => `${fmt(p.card)}: ${p.why[0] || `it is the most dangerous card left once the clear liabilities are gone, and nothing below it is worth passing instead`}${p.why.length > 1 ? ' (' + p.why.slice(1).join('; ') + ')' : ''}`);
     let moonPass = null;
     if (moon.level !== 'no') {
       // Moon pass: get rid of the lowest losers instead.
@@ -689,6 +690,7 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     raw: [],          // recent raw lines, newest last
     messages: [],     // recent parsed objects
     cmds: {},         // cmd -> how many times seen
+    passPrompt: null, // the site asking us to choose a pass, with its direction code
     turn: null,       // whose turn the site last said it was, in its own index
     myHand: null,     // our remaining cards, from the site's own play prompt
     valid: null,      // the legal plays, as the site states them
@@ -742,6 +744,14 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     push(state.messages, { t: Date.now(), direction, msg });
     const cmd = String(msg.cmd || msg.command || msg.type || '').toLowerCase();
     if (cmd) state.cmds[cmd] = (state.cmds[cmd] || 0) + 1;
+    // {"cmd":"pass","direction":1,"passXCards":3,"suggested":{"cards":{"cards":"10H 8H 7H"}}}
+    // — sent when it is time to choose a pass. direction is the site's own code for it.
+    if (/^pass$/.test(cmd) && (msg.passXCards || msg.passxcards || msg.pass_x_cards)) {
+      const n = msg.passXCards || msg.passxcards || msg.pass_x_cards;
+      state.passPrompt = { direction: msg.direction, count: n };
+      emit({ kind: 'passprompt', direction: msg.direction, count: n });
+      return;
+    }
     // {"cmd":"play","valid_cards":"2H KH","invalid_cards":"3S 6S 6C 7C","lead_card":false,
     //  "suggested":{"card":"2H",...}} — sent to us when it is our turn. valid + invalid is
     // our whole remaining hand, and valid_cards is the legal set, stated by the game itself.
@@ -882,6 +892,7 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
       'Hand: ' + (state.hand && H ? H.fmtList(state.hand) : 'none'),
       'Passed: ' + (state.passed && H ? H.fmtList(state.passed) : 'none') + '   Received: ' + (state.received && H ? H.fmtList(state.received) : 'none'),
       'Turn (site index): ' + state.turn,
+      'Pass prompt: ' + (state.passPrompt ? JSON.stringify(state.passPrompt) : 'none'),
       'Remaining hand (from prompt): ' + (state.myHand && H ? H.fmtList(state.myHand) : 'none'),
       'Legal now: ' + (state.valid && H ? H.fmtList(state.valid) : 'none'),
       'Plays recognised: ' + state.plays.length + (state.plays.length && H ? ' (last: ' + state.plays.slice(-6).map(p => 'seat' + p.seat + ':' + H.fmt(p.card)).join(' ') + ')' : ''),
@@ -1071,6 +1082,7 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
   let protoTurn = null;      // whose turn the site says it is, in its index
   let joinedMidHand = false;
   let prompt = null;         // the site's live play prompt: our hand and what is legal right now
+  let passPrompt = null;     // the site asking us to choose three cards to pass
   const PROTO = (typeof HeartsProtocol !== 'undefined') ? HeartsProtocol : (window.HeartsProtocol || null);
   if (PROTO) { try { PROTO.start(); } catch (e) { console.warn('[hearts-coach] protocol tap failed', e); } }
   let status = 'Waiting for a hand…';
@@ -1114,6 +1126,15 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     }
     if (!dealt) { status = handCards.length ? `Seeing ${handCards.length} cards — waiting for a full 13-card deal.` : noCardsHint(); render(); return; }
 
+    // The site asks for a pass, or the page's own button says so.
+    const pagePass = passPhaseFromPage();
+    if (tracker.hand.length === 13 && !tracker.tricks.length && !tracker.trick.plays.length
+        && (passPrompt || (pagePass && pagePass !== 'hold'))) {
+      if (pagePass && pagePass !== 'unknown' && pagePass !== cfg.passDirection) {
+        cfg.passDirection = pagePass; saveCfg(); q('.hc-dir').value = pagePass; lastAdviceKey = '';
+      }
+      renderPass(); return;
+    }
     // Passing phase: 13 cards, nothing played, direction not hold.
     const passing = !protoDriven && tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
     if (passing) { renderPass(); return; }
@@ -1177,10 +1198,16 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     if (!evs.length) return;
     for (const ev of evs) {
       lastEventSeq = ev.seq;
-      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; prompt = null; }
+      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; joinedMidHand = false; prompt = null; passPrompt = null; }
       else if (ev.kind === 'play') pendingPlays.push(ev);
       else if (ev.kind === 'turn') protoTurn = ev.seat;
-      else if (ev.kind === 'prompt') { prompt = ev; lastAdviceKey = ''; }
+      else if (ev.kind === 'prompt') { prompt = ev; passPrompt = null; lastAdviceKey = ''; }
+      else if (ev.kind === 'passprompt') {
+        passPrompt = ev;
+        const dir = DIR_CODE[ev.direction];
+        if (dir) { cfg.passDirection = dir; saveCfg(); q('.hc-dir').value = dir; }
+        lastAdviceKey = '';
+      }
     }
     // The prompt states our remaining hand outright, so we can start mid-hand instead of waiting.
     if (prompt && !dealt) {
@@ -1206,6 +1233,19 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     }
     pendingPlays = [];
     lastAdviceKey = '';
+  }
+
+  const DIR_CODE = { 0: 'hold', 1: 'left', 2: 'right', 3: 'across' };
+
+  /** The passing phase, read from the page itself: the button says which way. */
+  function passPhaseFromPage() {
+    let text = '';
+    try { text = (document.body.innerText || '').slice(0, 5000); } catch (e) { return null; }
+    const m = text.match(/pass\s+(left|right|across)/i);
+    if (m) return m[1].toLowerCase();
+    if (/(keep|hold)\s+your\s+cards|no\s+pass/i.test(text)) return 'hold';
+    if (/pass\s+\d+\s+cards?/i.test(text)) return 'unknown';
+    return null;
   }
 
   /** The site's idea of whose turn it is, in our seat numbering. */
@@ -1332,18 +1372,22 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     addEventListener('mouseup', () => { if (!on) return; on = false; const r = panel.getBoundingClientRect(); cfg.x = r.left; cfg.y = r.top; saveCfg(); });
   })();
 
-  let highlighted = null;
-  function highlight(card) {
-    if (highlighted) { highlighted.classList.remove('hc-rec-card'); highlighted = null; }
-    if (!card) return;
+  let highlighted = [];
+  function highlight(cards) {
+    for (const el of highlighted) el.classList.remove('hc-rec-card');
+    highlighted = [];
+    const list = !cards ? [] : (Array.isArray(cards) ? cards : [cards]);
+    if (!list.length) return;
     const items = scanCards();
-    const it = items.find(i => i.card.id === card.id);
-    if (it) { it.el.classList.add('hc-rec-card'); highlighted = it.el; }
+    for (const c of list) {
+      const it = items.find(i => i.card.id === c.id);
+      if (it) { it.el.classList.add('hc-rec-card'); highlighted.push(it.el); }
+    }
   }
   function esc(s) { return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])); }
 
   function renderPass() {
-    const key = 'pass:' + tracker.hand.map(c => c.id).join(',') + cfg.passDirection;
+    const key = 'pass:' + tracker.hand.map(c => c.id).join(',') + cfg.passDirection + (passPrompt ? 'p' : '');
     if (key === lastAdviceKey) return;
     lastAdviceKey = key;
     tracker.passDirection = cfg.passDirection;
@@ -1355,7 +1399,8 @@ var HEARTS_COACH_BUILD = "09-15 03:29";
     q('.hc-intel').innerHTML = '';
     q('.hc-warn').textContent = '';
     q('.hc-status').textContent = `Passing ${cfg.passDirection}. Hand: ${H.fmtList(tracker.hand)}`;
-    highlight(null);
+    q('.hc-warn').textContent = '';
+    highlight(r.pass);
     log(`PASS ${H.fmtList(r.pass)} (${cfg.passDirection})\n  ${r.reasons.join('\n  ')}\n  Plan: ${r.plan.join(' ')}`);
   }
 

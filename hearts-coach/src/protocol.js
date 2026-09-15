@@ -33,6 +33,7 @@
     raw: [],          // recent raw lines, newest last
     messages: [],     // recent parsed objects
     cmds: {},         // cmd -> how many times seen
+    passPrompt: null, // the site asking us to choose a pass, with its direction code
     turn: null,       // whose turn the site last said it was, in its own index
     myHand: null,     // our remaining cards, from the site's own play prompt
     valid: null,      // the legal plays, as the site states them
@@ -86,6 +87,14 @@
     push(state.messages, { t: Date.now(), direction, msg });
     const cmd = String(msg.cmd || msg.command || msg.type || '').toLowerCase();
     if (cmd) state.cmds[cmd] = (state.cmds[cmd] || 0) + 1;
+    // {"cmd":"pass","direction":1,"passXCards":3,"suggested":{"cards":{"cards":"10H 8H 7H"}}}
+    // — sent when it is time to choose a pass. direction is the site's own code for it.
+    if (/^pass$/.test(cmd) && (msg.passXCards || msg.passxcards || msg.pass_x_cards)) {
+      const n = msg.passXCards || msg.passxcards || msg.pass_x_cards;
+      state.passPrompt = { direction: msg.direction, count: n };
+      emit({ kind: 'passprompt', direction: msg.direction, count: n });
+      return;
+    }
     // {"cmd":"play","valid_cards":"2H KH","invalid_cards":"3S 6S 6C 7C","lead_card":false,
     //  "suggested":{"card":"2H",...}} — sent to us when it is our turn. valid + invalid is
     // our whole remaining hand, and valid_cards is the legal set, stated by the game itself.
@@ -226,6 +235,7 @@
       'Hand: ' + (state.hand && H ? H.fmtList(state.hand) : 'none'),
       'Passed: ' + (state.passed && H ? H.fmtList(state.passed) : 'none') + '   Received: ' + (state.received && H ? H.fmtList(state.received) : 'none'),
       'Turn (site index): ' + state.turn,
+      'Pass prompt: ' + (state.passPrompt ? JSON.stringify(state.passPrompt) : 'none'),
       'Remaining hand (from prompt): ' + (state.myHand && H ? H.fmtList(state.myHand) : 'none'),
       'Legal now: ' + (state.valid && H ? H.fmtList(state.valid) : 'none'),
       'Plays recognised: ' + state.plays.length + (state.plays.length && H ? ' (last: ' + state.plays.slice(-6).map(p => 'seat' + p.seat + ':' + H.fmt(p.card)).join(' ') + ')' : ''),

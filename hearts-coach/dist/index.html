@@ -301,8 +301,9 @@
         ? { 14: 42, 13: 36, 12: 28, 11: 18, 10: 10, 9: 5, 8: 2, 7: 0, 6: 0, 5: 0, 4: -12, 3: -12, 2: -12 }
         : { 14: 60, 13: 50, 12: 38, 11: 25, 10: 14, 9: 6, 8: 2, 7: 0, 6: 0, 5: 0, 4: -12, 3: -12, 2: -12 };
       d = table[card.v];
-      if (club && card.v >= 13 && has(hand, '2C')) { d += 10; why.push('you hold the 2♣ so you lead trick one and cannot dump this club on the free first trick'); }
+      if (club && card.v >= 13 && has(hand, '2C')) { d += 10; why.push(`you hold the 2♣ so you lead trick one and cannot dump ${fmt(card)} on the free first trick`); }
       else if (club && card.v >= 13) why.push(`${fmt(card)} can often be shed on the point-free first trick, so it is only mildly dangerous`);
+      else if (club && card.v === 12) why.push(`${fmt(card)} will win a club trick once the aces and kings are gone, and clubs run out early`);
       if (!club && card.v >= 12) why.push(`${fmt(card)} tends to win a diamond trick late, exactly when hearts get dumped on it`);
       if (card.v <= 4) why.push(`${fmt(card)} is a safe exit card — keep it`);
       if (suitLen === 1) { d += 45; why.push(`singleton ${SUIT_NAME[card.s]}: passing it makes you void, so you can dump the Q♠ or high hearts on ${SUIT_NAME[card.s]} leads`); }
@@ -323,7 +324,7 @@
     const moon = evaluateMoon(hand);
     const scored = hand.map(c => passDanger(c, hand, direction, opts)).sort((a, b) => b.danger - a.danger);
     const pass = scored.slice(0, 3);
-    const reasons = pass.map(p => `${fmt(p.card)}: ${p.why[0] || 'highest remaining liability'}${p.why.length > 1 ? ' (' + p.why.slice(1).join('; ') + ')' : ''}`);
+    const reasons = pass.map(p => `${fmt(p.card)}: ${p.why[0] || `it is the most dangerous card left once the clear liabilities are gone, and nothing below it is worth passing instead`}${p.why.length > 1 ? ' (' + p.why.slice(1).join('; ') + ')' : ''}`);
     let moonPass = null;
     if (moon.level !== 'no') {
       // Moon pass: get rid of the lowest losers instead.
