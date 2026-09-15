@@ -10,7 +10,7 @@ Three ways to use it:
 | **Terminal watcher** (`npm run watch`) | Opens cardgames.io in a Chromium window with the overlay injected and prints each recommendation to your terminal, chat-style. | Node + Playwright |
 | **Manual coach app** (`app/index.html`) | Enter your hand and each card as it is played; the coach advises every decision. Works with any Hearts game, online or at a kitchen table. | Open the file |
 
-The strategy the coach follows is written up in [docs/STRATEGY.md](docs/STRATEGY.md).
+Setup for each mode is in [INSTALL.md](INSTALL.md). The strategy the coach follows is written up in [docs/STRATEGY.md](docs/STRATEGY.md).
 
 ## Quick start
 

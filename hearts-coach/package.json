@@ -8,7 +8,8 @@
     "test": "node --test",
     "build": "node scripts/build.js",
     "app": "node scripts/build.js && npx --yes serve dist",
-    "watch": "node watch/watch.mjs"
+    "watch": "node watch/watch.mjs",
+    "copy": "node scripts/build.js && (pbcopy < dist/hearts-coach.user.js && echo 'Copied dist/hearts-coach.user.js to the clipboard.' || echo 'pbcopy not available (macOS only) \u2014 open dist/hearts-coach.user.js and copy it by hand.')"
   },
   "devDependencies": {
     "playwright": "^1.50.0"

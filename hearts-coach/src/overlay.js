@@ -48,9 +48,14 @@
     }
     return null;
   }
+  /** Text on a card face, e.g. "4♥", "10♦", or "Q♠Q♠" when both corners are labelled. */
   function compactText(el) {
     const t = (el.innerText || el.textContent || '').replace(/\s+/g, '');
-    return t.length <= 3 ? t : '';
+    if (!t || t.length > 8) return '';
+    // A container holding several different cards is not itself a card.
+    const m = t.match(/(10|[2-9TJQKA])([CDHS♣♦♥♠])/gi);
+    if (m && m.length > 1 && new Set(m.map(x => x.toUpperCase())).size > 1) return '';
+    return m ? m[0] : t;
   }
   function cardFromElement(el) {
     const tries = [
