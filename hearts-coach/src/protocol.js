@@ -25,7 +25,7 @@
   const H = (typeof HeartsCoach !== 'undefined') ? HeartsCoach : (typeof window !== 'undefined' && window.HeartsCoach);
 
   const CARD_LIST = /^\s*(?:(?:10|[2-9TJQKA])[CDHS](?:\s+|$))+$/i;
-  const SEAT_KEYS = ['player', 'seat', 'position', 'pos', 'who', 'playerindex', 'playerid', 'index', 'idx', 'from', 'turn'];
+  const SEAT_KEYS = ['pid', 'player', 'playerid', 'playerindex', 'playernum', 'playernumber', 'seat', 'seatid', 'position', 'pos', 'who', 'index', 'idx', 'from', 'turn'];
   const MAX = 400;
 
   const state = {
@@ -38,7 +38,8 @@
     passed: null,     // cards we sent away
     received: null,   // cards we got back
     plays: [],        // {seat, card, seq} when a play message is recognised
-    playSeq: 0,
+    events: [],       // ordered stream the overlay consumes: {seq, kind:'hand'|'play', ...}
+    seq: 0,
     unknown: [],      // messages carrying cards we could not interpret
   };
 
@@ -74,6 +75,8 @@
     return found;
   }
 
+  function emit(ev) { ev.seq = ++state.seq; push(state.events, ev); return ev; }
+
   function handle(msg, direction) {
     if (!msg || typeof msg !== 'object') return;
     push(state.messages, { t: Date.now(), direction, msg });
@@ -89,6 +92,7 @@
       if (!state.hand || state.hand.map(c => c.id).join(' ') !== ids) {
         state.hand = full.cards;
         state.handSeq++;
+        emit({ kind: 'hand', cards: full.cards, passed: state.passed, received: state.received });
       }
     }
     // Our own outgoing pass, and the three that came back.
@@ -105,7 +109,9 @@
     if (single.length === 1 && !full) {
       const seat = findSeat(msg);
       if (seat !== null && /play|card|trick|move/.test(cmd)) {
-        push(state.plays, { seat, card: single[0].cards[0], cmd, seq: ++state.playSeq, path: single[0].path });
+        const card = single[0].cards[0];
+        const ev = emit({ kind: 'play', seat, card, cmd });
+        push(state.plays, { seat, card, cmd, seq: ev.seq, path: single[0].path });
         return;
       }
       push(state.unknown, { cmd, path: single[0].path, text: single[0].text, msg });

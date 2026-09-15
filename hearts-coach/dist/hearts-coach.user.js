@@ -679,7 +679,7 @@
   const H = (typeof HeartsCoach !== 'undefined') ? HeartsCoach : (typeof window !== 'undefined' && window.HeartsCoach);
 
   const CARD_LIST = /^\s*(?:(?:10|[2-9TJQKA])[CDHS](?:\s+|$))+$/i;
-  const SEAT_KEYS = ['player', 'seat', 'position', 'pos', 'who', 'playerindex', 'playerid', 'index', 'idx', 'from', 'turn'];
+  const SEAT_KEYS = ['pid', 'player', 'playerid', 'playerindex', 'playernum', 'playernumber', 'seat', 'seatid', 'position', 'pos', 'who', 'index', 'idx', 'from', 'turn'];
   const MAX = 400;
 
   const state = {
@@ -692,7 +692,8 @@
     passed: null,     // cards we sent away
     received: null,   // cards we got back
     plays: [],        // {seat, card, seq} when a play message is recognised
-    playSeq: 0,
+    events: [],       // ordered stream the overlay consumes: {seq, kind:'hand'|'play', ...}
+    seq: 0,
     unknown: [],      // messages carrying cards we could not interpret
   };
 
@@ -728,6 +729,8 @@
     return found;
   }
 
+  function emit(ev) { ev.seq = ++state.seq; push(state.events, ev); return ev; }
+
   function handle(msg, direction) {
     if (!msg || typeof msg !== 'object') return;
     push(state.messages, { t: Date.now(), direction, msg });
@@ -743,6 +746,7 @@
       if (!state.hand || state.hand.map(c => c.id).join(' ') !== ids) {
         state.hand = full.cards;
         state.handSeq++;
+        emit({ kind: 'hand', cards: full.cards, passed: state.passed, received: state.received });
       }
     }
     // Our own outgoing pass, and the three that came back.
@@ -759,7 +763,9 @@
     if (single.length === 1 && !full) {
       const seat = findSeat(msg);
       if (seat !== null && /play|card|trick|move/.test(cmd)) {
-        push(state.plays, { seat, card: single[0].cards[0], cmd, seq: ++state.playSeq, path: single[0].path });
+        const card = single[0].cards[0];
+        const ev = emit({ kind: 'play', seat, card, cmd });
+        push(state.plays, { seat, card, cmd, seq: ev.seq, path: single[0].path });
         return;
       }
       push(state.unknown, { cmd, path: single[0].path, text: single[0].text, msg });
@@ -1018,6 +1024,9 @@
   let dealt = null;            // the 13 cards first seen this hand
   let lastAdviceKey = '';
   let lastProtoSeq = -1;
+  let lastEventSeq = 0;
+  let myPid = null;          // this site's player index for us; learned from the first card we play
+  let pendingPlays = [];     // plays held until we know which index is us
   const PROTO = (typeof HeartsProtocol !== 'undefined') ? HeartsProtocol : (window.HeartsProtocol || null);
   if (PROTO) { try { PROTO.start(); } catch (e) { console.warn('[hearts-coach] protocol tap failed', e); } }
   let status = 'Waiting for a hand…';
@@ -1028,10 +1037,9 @@
 
   function step() {
     // A site that broadcasts its own state beats anything we can read off the screen.
-    if (PROTO && PROTO.state.hand && PROTO.state.handSeq !== lastProtoSeq) {
-      lastProtoSeq = PROTO.state.handSeq;
-      handFromProtocol(PROTO.state);
-    }
+    if (PROTO) drainProtocol();
+    const protoDriven = !!(PROTO && PROTO.state.hand);
+    const protoPlays = !!(PROTO && PROTO.state.plays.length);
     let items;
     try { items = scanCards(); } catch (e) { status = 'scan error: ' + e.message; render(); return; }
     const { hand, trick, center } = classify(items);
@@ -1039,7 +1047,7 @@
     const trickIds = new Set(trick.map(i => i.card.id));
 
     // New hand? (Skipped once the protocol tap is feeding us hands.)
-    if (!(PROTO && PROTO.state.hand) && handCards.length === 13 && (!dealt || (tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !sameSet(hand, dealt.map(c => ({ card: c })))))) {
+    if (!protoDriven && handCards.length === 13 && (!dealt || (tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !sameSet(hand, dealt.map(c => ({ card: c })))))) {
       if (!dealt) {
         newHand(handCards);
       } else if (cfg.passDirection === 'hold' || tracker.receivedCards.length) {
@@ -1063,9 +1071,10 @@
     if (!dealt) { status = handCards.length ? `Seeing ${handCards.length} cards — waiting for a full 13-card deal.` : noCardsHint(); render(); return; }
 
     // Passing phase: 13 cards, nothing played, direction not hold.
-    const passing = !(PROTO && PROTO.state.hand) && tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
+    const passing = !protoDriven && tracker.tricks.length === 0 && tracker.trick.plays.length === 0 && !tracker.receivedCards.length && cfg.passDirection !== 'hold' && handCards.length >= 10 && trick.length === 0;
     if (passing) { renderPass(); return; }
 
+    if (protoPlays) { render(); return; }   // the site tells us every play; don't also guess from pixels
     // Play phase: record new cards on the table in seat order.
     const known = new Set(tracker.trick.plays.map(p => p.card.id));
     let fresh = trick.filter(i => !known.has(i.card.id) && !tracker.isPlayed(i.card));
@@ -1106,13 +1115,40 @@
     return 'No cards detected yet. Start a hand, then click Calibrate.';
   }
 
+  /** Replay the site's own messages in order: hands, then the plays that followed. */
+  function drainProtocol() {
+    const evs = PROTO.state.events.filter(e => e.seq > lastEventSeq);
+    if (!evs.length) return;
+    for (const ev of evs) {
+      lastEventSeq = ev.seq;
+      if (ev.kind === 'hand') { handFromProtocol(ev); pendingPlays = []; }
+      else if (ev.kind === 'play') pendingPlays.push(ev);
+    }
+    if (!dealt) { pendingPlays = []; return; }
+    // The first played card that was in our own deal tells us which index we are.
+    if (myPid === null) {
+      for (const ev of pendingPlays) {
+        if (dealt.some(c => c.id === ev.card.id)) { myPid = ev.seat; break; }
+      }
+      if (myPid === null) return;   // hold them; we learn this within the first trick
+    }
+    for (const ev of pendingPlays) {
+      const seat = (ev.seat - myPid + 4) % 4;
+      try { tracker.play(seat, ev.card); desync = null; }
+      catch (e) { desync = `Missed a card (${e.message}). Click Resync.`; }
+    }
+    pendingPlays = [];
+    lastAdviceKey = '';
+  }
+
   /** Start a hand from the site's own message: authoritative, and already past the pass. */
   function handFromProtocol(ps) {
     tracker = new H.HandTracker();
-    tracker.setHand(ps.hand);
+    tracker.setHand(ps.cards || ps.hand);
     if (ps.passed || ps.received) tracker.setPassInfo(ps.passed, ps.received, cfg.passDirection);
     dealt = tracker.hand.slice();
     desync = null; lastAdviceKey = '';
+    if (tracker.moonMode !== undefined) tracker.setMoonMode(q('.hc-moon-cb') ? q('.hc-moon-cb').checked : false);
     status = ps.passed
       ? `Hand read from the site. You passed ${H.fmtList(ps.passed)} and got ${H.fmtList(ps.received || [])}.`
       : 'Hand read from the site.';
@@ -1200,7 +1236,7 @@
   panel.classList.toggle('hc-min', cfg.minimized);
   q('.hc-moon-cb').onchange = e => { tracker.setMoonMode(e.target.checked); lastAdviceKey = ''; render(); };
   q('.hc-resync').onclick = resync;
-  q('.hc-newhand').onclick = () => { dealt = null; tracker = new H.HandTracker(); status = 'Reset. Waiting for 13 cards.'; render(); };
+  q('.hc-newhand').onclick = () => { dealt = null; tracker = new H.HandTracker(); pendingPlays = []; status = 'Reset. Waiting for 13 cards.'; render(); };
   q('.hc-log').checked = !!cfg.log;
   q('.hc-log').onchange = e => { cfg.log = e.target.checked; saveCfg(); };
   q('.hc-calib').onclick = calibrate;
